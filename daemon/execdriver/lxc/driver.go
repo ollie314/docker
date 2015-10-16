@@ -125,7 +125,7 @@ func killNetNsProc(proc *os.Process) {
 
 // Run implements the exec driver Driver interface,
 // it calls 'exec.Cmd' to launch lxc commands to run a container.
-func (d *Driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallback execdriver.StartCallback) (execdriver.ExitStatus, error) {
+func (d *Driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, hooks execdriver.Hooks) (execdriver.ExitStatus, error) {
 	var (
 		term     execdriver.Terminal
 		err      error
@@ -324,23 +324,20 @@ func (d *Driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallba
 
 	c.ContainerPid = pid
 
-	if startCallback != nil {
+	if hooks.Start != nil {
 		logrus.Debugf("Invoking startCallback")
-		startCallback(&c.ProcessConfig, pid)
+		chOOM := make(chan struct{})
+		close(chOOM)
+		hooks.Start(&c.ProcessConfig, pid, chOOM)
 	}
 
-	oomKill := false
-	oomKillNotification, err := notifyOnOOM(cgroupPaths)
+	oomKillNotification := notifyChannelOOM(cgroupPaths)
 
 	<-waitLock
 	exitCode := getExitCode(c)
 
-	if err == nil {
-		_, oomKill = <-oomKillNotification
-		logrus.Debugf("oomKill error: %v, waitErr: %v", oomKill, waitErr)
-	} else {
-		logrus.Warnf("Your kernel does not support OOM notifications: %s", err)
-	}
+	_, oomKill := <-oomKillNotification
+	logrus.Debugf("oomKill error: %v, waitErr: %v", oomKill, waitErr)
 
 	// check oom error
 	if oomKill {
@@ -348,6 +345,17 @@ func (d *Driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallba
 	}
 
 	return execdriver.ExitStatus{ExitCode: exitCode, OOMKilled: oomKill}, waitErr
+}
+
+func notifyChannelOOM(paths map[string]string) <-chan struct{} {
+	oom, err := notifyOnOOM(paths)
+	if err != nil {
+		logrus.Warnf("Your kernel does not support OOM notifications: %s", err)
+		c := make(chan struct{})
+		close(c)
+		return c
+	}
+	return oom
 }
 
 // copy from libcontainer
@@ -385,11 +393,13 @@ func notifyOnOOM(paths map[string]string) (<-chan struct{}, error) {
 		buf := make([]byte, 8)
 		for {
 			if _, err := eventfd.Read(buf); err != nil {
+				logrus.Warn(err)
 				return
 			}
 			// When a cgroup is destroyed, an event is sent to eventfd.
 			// So if the control path is gone, return instead of notifying.
 			if _, err := os.Lstat(eventControlPath); os.IsNotExist(err) {
+				logrus.Warn(err)
 				return
 			}
 			ch <- struct{}{}
@@ -422,6 +432,11 @@ func cgroupPaths(containerID string) (map[string]string, error) {
 		if err != nil {
 			//unsupported subystem
 			continue
+		}
+		// if we are running dind
+		dockerPathIdx := strings.LastIndex(cgroupDir, "docker")
+		if dockerPathIdx != -1 {
+			cgroupDir = cgroupDir[:dockerPathIdx-1]
 		}
 		path := filepath.Join(cgroupRoot, cgroupDir, "lxc", containerID)
 		paths[subsystem] = path
@@ -870,7 +885,7 @@ func (t *TtyConsole) Close() error {
 
 // Exec implements the exec driver Driver interface,
 // it is not implemented by lxc.
-func (d *Driver) Exec(c *execdriver.Command, processConfig *execdriver.ProcessConfig, pipes *execdriver.Pipes, startCallback execdriver.StartCallback) (int, error) {
+func (d *Driver) Exec(c *execdriver.Command, processConfig *execdriver.ProcessConfig, pipes *execdriver.Pipes, hooks execdriver.Hooks) (int, error) {
 	return -1, ErrExec
 }
 
@@ -882,4 +897,10 @@ func (d *Driver) Stats(id string) (*execdriver.ResourceStats, error) {
 		return nil, fmt.Errorf("%s is not a key in active containers", id)
 	}
 	return execdriver.Stats(d.containerDir(id), d.activeContainers[id].container.Cgroups.Memory, d.machineMemory)
+}
+
+// SupportsHooks implements the execdriver Driver interface.
+// The LXC execdriver does not support the hook mechanism, which is currently unique to runC/libcontainer.
+func (d *Driver) SupportsHooks() bool {
+	return false
 }

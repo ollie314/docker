@@ -5,9 +5,13 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/versions/v1p20"
 )
 
-func (daemon *Daemon) ContainerInspect(name string) (*types.ContainerJSON, error) {
+// ContainerInspect returns low-level information about a
+// container. Returns an error if the container cannot be found, or if
+// there is an error getting the data.
+func (daemon *Daemon) ContainerInspect(name string, size bool) (*types.ContainerJSON, error) {
 	container, err := daemon.Get(name)
 	if err != nil {
 		return nil, err
@@ -16,7 +20,7 @@ func (daemon *Daemon) ContainerInspect(name string) (*types.ContainerJSON, error
 	container.Lock()
 	defer container.Unlock()
 
-	base, err := daemon.getInspectData(container)
+	base, err := daemon.getInspectData(container, size)
 	if err != nil {
 		return nil, err
 	}
@@ -26,11 +30,35 @@ func (daemon *Daemon) ContainerInspect(name string) (*types.ContainerJSON, error
 	return &types.ContainerJSON{base, mountPoints, container.Config}, nil
 }
 
-func (daemon *Daemon) getInspectData(container *Container) (*types.ContainerJSONBase, error) {
+// ContainerInspect120 serializes the master version of a container into a json type.
+func (daemon *Daemon) ContainerInspect120(name string) (*v1p20.ContainerJSON, error) {
+	container, err := daemon.Get(name)
+	if err != nil {
+		return nil, err
+	}
+
+	container.Lock()
+	defer container.Unlock()
+
+	base, err := daemon.getInspectData(container, false)
+	if err != nil {
+		return nil, err
+	}
+
+	mountPoints := addMountPoints(container)
+	config := &v1p20.ContainerConfig{
+		container.Config,
+		container.hostConfig.VolumeDriver,
+	}
+
+	return &v1p20.ContainerJSON{base, mountPoints, config}, nil
+}
+
+func (daemon *Daemon) getInspectData(container *Container, size bool) (*types.ContainerJSONBase, error) {
 	// make a copy to play with
 	hostConfig := *container.hostConfig
 
-	if children, err := daemon.Children(container.Name); err == nil {
+	if children, err := daemon.children(container.Name); err == nil {
 		for linkAlias, child := range children {
 			hostConfig.Links = append(hostConfig.Links, fmt.Sprintf("%s:%s", child.Name, linkAlias))
 		}
@@ -46,6 +74,7 @@ func (daemon *Daemon) getInspectData(container *Container) (*types.ContainerJSON
 	}
 
 	containerState := &types.ContainerState{
+		Status:     container.State.StateString(),
 		Running:    container.State.Running,
 		Paused:     container.State.Paused,
 		Restarting: container.State.Restarting,
@@ -73,8 +102,18 @@ func (daemon *Daemon) getInspectData(container *Container) (*types.ContainerJSON
 		ExecDriver:      container.ExecDriver,
 		MountLabel:      container.MountLabel,
 		ProcessLabel:    container.ProcessLabel,
-		ExecIDs:         container.GetExecIDs(),
+		ExecIDs:         container.getExecIDs(),
 		HostConfig:      &hostConfig,
+	}
+
+	var (
+		sizeRw     int64
+		sizeRootFs int64
+	)
+	if size {
+		sizeRw, sizeRootFs = container.getSize()
+		contJSONBase.SizeRw = &sizeRw
+		contJSONBase.SizeRootFs = &sizeRootFs
 	}
 
 	// Now set any platform-specific fields
@@ -90,10 +129,22 @@ func (daemon *Daemon) getInspectData(container *Container) (*types.ContainerJSON
 	return contJSONBase, nil
 }
 
-func (daemon *Daemon) ContainerExecInspect(id string) (*execConfig, error) {
+// ContainerExecInspect returns low-level information about the exec
+// command. An error is returned if the exec cannot be found.
+func (daemon *Daemon) ContainerExecInspect(id string) (*ExecConfig, error) {
 	eConfig, err := daemon.getExecConfig(id)
 	if err != nil {
 		return nil, err
 	}
 	return eConfig, nil
+}
+
+// VolumeInspect looks up a volume by name. An error is returned if
+// the volume cannot be found.
+func (daemon *Daemon) VolumeInspect(name string) (*types.Volume, error) {
+	v, err := daemon.volumes.Get(name)
+	if err != nil {
+		return nil, err
+	}
+	return volumeToAPIType(v), nil
 }

@@ -17,8 +17,10 @@ plugins.
 ## Types of plugins
 
 Plugins extend Docker's functionality.  They come in specific types.  For
-example, a [volume plugin](/extend/plugins_volume) might enable Docker
-volumes to persist across multiple Docker hosts.
+example, a [volume plugin](plugins_volume.md) might enable Docker
+volumes to persist across multiple Docker hosts and a 
+[network plugin](plugins_network.md) might provide network plumbing
+using a favorite networking technology, such as vxlan overlay, ipvlan, EVPN, etc.
 
 Currently Docker supports volume and network driver plugins. In the future it
 will support additional plugin types.
@@ -37,6 +39,11 @@ The following plugins exist:
   environments with features that include tenant isolation, automated
   provisioning, encryption, secure deletion, snapshots and QoS.
 
+* The [Convoy plugin](https://github.com/rancher/convoy) is a volume plugin for a
+  variety of storage back-ends including device mapper and NFS. It's a simple standalone
+  executable written in Go and provides the framework to support vendor-specific extensions
+  such as snapshots, backups and restore.
+
 * The [Flocker plugin](https://clusterhq.com/docker-plugin/) is a volume plugin
   which provides multi-host portable volumes for Docker, enabling you to run
   databases and other stateful containers and move them around across a cluster
@@ -50,6 +57,10 @@ The following plugins exist:
   a plugin that provides credentials and secret management using Keywhiz as
   a central repository.
 
+* The [Pachyderm PFS plugin](https://github.com/pachyderm/pachyderm/tree/master/src/cmd/pfs-volume-driver)
+  is a volume plugin written in Go that provides functionality to mount Pachyderm File System (PFS)
+  repositories at specific commits as volumes within Docker containers.
+
 * The [REX-Ray plugin](https://github.com/emccode/rexraycli) is a volume plugin
   which is written in Go and provides advanced storage functionality for many
   platforms including EC2, OpenStack, XtremIO, and ScaleIO.
@@ -62,4 +73,4 @@ of the plugin for help. The Docker team may not be able to assist you.
 ## Writing a plugin
 
 If you are interested in writing a plugin for Docker, or seeing how they work
-under the hood, see the [docker plugins reference](/extend/plugin_api).
+under the hood, see the [docker plugins reference](plugin_api.md).

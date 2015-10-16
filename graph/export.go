@@ -2,12 +2,15 @@ package graph
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/distribution/digest"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/registry"
@@ -57,6 +60,11 @@ func (s *TagStore) ImageExport(names []string, outStream io.Writer) error {
 				// This is a named image like 'busybox:latest'
 				repoName, repoTag := parsers.ParseRepositoryTag(name)
 
+				// Skip digests on save
+				if _, err := digest.ParseDigest(repoTag); err == nil {
+					repoTag = ""
+				}
+
 				// check this length, because a lookup of a truncated has will not have a tag
 				// and will not need to be added to this map
 				if len(repoTag) > 0 {
@@ -88,6 +96,9 @@ func (s *TagStore) ImageExport(names []string, outStream io.Writer) error {
 		if err := f.Close(); err != nil {
 			return err
 		}
+		if err := os.Chtimes(filepath.Join(tempdir, "repositories"), time.Unix(0, 0), time.Unix(0, 0)); err != nil {
+			return err
+		}
 	} else {
 		logrus.Debugf("There were no repositories to write")
 	}
@@ -105,9 +116,13 @@ func (s *TagStore) ImageExport(names []string, outStream io.Writer) error {
 	return nil
 }
 
-// FIXME: this should be a top-level function, not a class method
 func (s *TagStore) exportImage(name, tempdir string) error {
 	for n := name; n != ""; {
+		img, err := s.LookupImage(n)
+		if err != nil || img == nil {
+			return fmt.Errorf("No such image %s", n)
+		}
+
 		// temporary directory
 		tmpImageDir := filepath.Join(tempdir, n)
 		if err := os.Mkdir(tmpImageDir, os.FileMode(0755)); err != nil {
@@ -124,15 +139,17 @@ func (s *TagStore) exportImage(name, tempdir string) error {
 			return err
 		}
 
+		imageInspectRaw, err := json.Marshal(img)
+		if err != nil {
+			return err
+		}
+
 		// serialize json
 		json, err := os.Create(filepath.Join(tmpImageDir, "json"))
 		if err != nil {
 			return err
 		}
-		imageInspectRaw, err := s.lookupRaw(n)
-		if err != nil {
-			return err
-		}
+
 		written, err := json.Write(imageInspectRaw)
 		if err != nil {
 			return err
@@ -150,11 +167,13 @@ func (s *TagStore) exportImage(name, tempdir string) error {
 			return err
 		}
 
-		// find parent
-		img, err := s.LookupImage(n)
-		if err != nil {
-			return err
+		for _, fname := range []string{"", "VERSION", "json", "layer.tar"} {
+			if err := os.Chtimes(filepath.Join(tmpImageDir, fname), img.Created, img.Created); err != nil {
+				return err
+			}
 		}
+
+		// try again with parent
 		n = img.Parent
 	}
 	return nil

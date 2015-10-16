@@ -16,13 +16,16 @@ import (
 	"github.com/docker/docker/daemon/events"
 	"github.com/docker/docker/graph/tags"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/pkg/broadcaster"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/registry"
-	"github.com/docker/docker/trust"
 	"github.com/docker/docker/utils"
 	"github.com/docker/libtrust"
 )
+
+// ErrNameIsNotExist returned when there is no image with requested name.
+var ErrNameIsNotExist = errors.New("image with specified name does not exist")
 
 // TagStore manages repositories. It encompasses the Graph used for versioned
 // storage, as well as various services involved in pushing and pulling
@@ -36,11 +39,10 @@ type TagStore struct {
 	sync.Mutex
 	// FIXME: move push/pull-related fields
 	// to a helper type
-	pullingPool     map[string]chan struct{}
-	pushingPool     map[string]chan struct{}
+	pullingPool     map[string]*broadcaster.Buffered
+	pushingPool     map[string]*broadcaster.Buffered
 	registryService *registry.Service
 	eventsService   *events.Events
-	trustService    *trust.TrustStore
 }
 
 // Repository maps tags to image IDs.
@@ -76,8 +78,6 @@ type TagStoreConfig struct {
 	Registry *registry.Service
 	// Events is the events service to use for logging.
 	Events *events.Events
-	// Trust is the trust service to use for push and pull operations.
-	Trust *trust.TrustStore
 }
 
 // NewTagStore creates a new TagStore at specified path, using the parameters
@@ -93,11 +93,10 @@ func NewTagStore(path string, cfg *TagStoreConfig) (*TagStore, error) {
 		graph:           cfg.Graph,
 		trustKey:        cfg.Key,
 		Repositories:    make(map[string]Repository),
-		pullingPool:     make(map[string]chan struct{}),
-		pushingPool:     make(map[string]chan struct{}),
+		pullingPool:     make(map[string]*broadcaster.Buffered),
+		pushingPool:     make(map[string]*broadcaster.Buffered),
 		registryService: cfg.Registry,
 		eventsService:   cfg.Events,
-		trustService:    cfg.Trust,
 	}
 	// Load the json file if it exists, otherwise create it.
 	if err := store.reload(); os.IsNotExist(err) {
@@ -155,7 +154,7 @@ func (store *TagStore) LookupImage(name string) (*image.Image, error) {
 	}
 
 	if img != nil {
-		return img, err
+		return img, nil
 	}
 
 	// name must be an image ID.
@@ -166,6 +165,26 @@ func (store *TagStore) LookupImage(name string) (*image.Image, error) {
 	}
 
 	return img, nil
+}
+
+// GetID returns ID for image name.
+func (store *TagStore) GetID(name string) (string, error) {
+	repoName, ref := parsers.ParseRepositoryTag(name)
+	if ref == "" {
+		ref = tags.DefaultTag
+	}
+	store.Lock()
+	defer store.Unlock()
+	repoName = registry.NormalizeLocalName(repoName)
+	repo, ok := store.Repositories[repoName]
+	if !ok {
+		return "", ErrNameIsNotExist
+	}
+	id, ok := repo[ref]
+	if !ok {
+		return "", ErrNameIsNotExist
+	}
+	return id, nil
 }
 
 // ByID returns a reverse-lookup table of all the names which refer to each
@@ -186,6 +205,12 @@ func (store *TagStore) ByID() map[string][]string {
 		}
 	}
 	return byID
+}
+
+// HasReferences returns whether or not the given image is referenced in one or
+// more repositories.
+func (store *TagStore) HasReferences(img *image.Image) bool {
+	return len(store.ByID()[img.ID]) > 0
 }
 
 // ImageName returns name of an image, given the image's ID.
@@ -275,14 +300,7 @@ func (store *TagStore) setLoad(repoName, tag, imageName string, force bool, out 
 		return err
 	}
 	if err := tags.ValidateTagName(tag); err != nil {
-		if _, formatError := err.(tags.ErrTagInvalidFormat); !formatError {
-			return err
-		}
-		if _, dErr := digest.ParseDigest(tag); dErr != nil {
-			// Still return the tag validation error.
-			// It's more likely to be a user generated issue.
-			return err
-		}
+		return err
 	}
 	if err := store.reload(); err != nil {
 		return err
@@ -294,7 +312,7 @@ func (store *TagStore) setLoad(repoName, tag, imageName string, force bool, out 
 		if old, exists := store.Repositories[repoName][tag]; exists {
 
 			if !force {
-				return fmt.Errorf("Conflict: Tag %s is already set to image %s, if you want to replace it, please use -f option", tag, old)
+				return fmt.Errorf("Conflict: Tag %s:%s is already set to image %s, if you want to replace it, please use -f option", repoName, tag, old[:12])
 			}
 
 			if old != img.ID && out != nil {
@@ -427,45 +445,54 @@ func validateDigest(dgst string) error {
 	return nil
 }
 
-func (store *TagStore) poolAdd(kind, key string) (chan struct{}, error) {
+// poolAdd checks if a push or pull is already running, and returns
+// (broadcaster, true) if a running operation is found. Otherwise, it creates a
+// new one and returns (broadcaster, false).
+func (store *TagStore) poolAdd(kind, key string) (*broadcaster.Buffered, bool) {
 	store.Lock()
 	defer store.Unlock()
 
-	if c, exists := store.pullingPool[key]; exists {
-		return c, fmt.Errorf("pull %s is already in progress", key)
+	if p, exists := store.pullingPool[key]; exists {
+		return p, true
 	}
-	if c, exists := store.pushingPool[key]; exists {
-		return c, fmt.Errorf("push %s is already in progress", key)
+	if p, exists := store.pushingPool[key]; exists {
+		return p, true
 	}
 
-	c := make(chan struct{})
+	broadcaster := broadcaster.NewBuffered()
+
 	switch kind {
 	case "pull":
-		store.pullingPool[key] = c
+		store.pullingPool[key] = broadcaster
 	case "push":
-		store.pushingPool[key] = c
+		store.pushingPool[key] = broadcaster
 	default:
-		return nil, fmt.Errorf("Unknown pool type")
+		panic("Unknown pool type")
 	}
-	return c, nil
+
+	return broadcaster, false
 }
 
-func (store *TagStore) poolRemove(kind, key string) error {
+func (store *TagStore) poolRemoveWithError(kind, key string, broadcasterResult error) error {
 	store.Lock()
 	defer store.Unlock()
 	switch kind {
 	case "pull":
-		if c, exists := store.pullingPool[key]; exists {
-			close(c)
+		if broadcaster, exists := store.pullingPool[key]; exists {
+			broadcaster.CloseWithError(broadcasterResult)
 			delete(store.pullingPool, key)
 		}
 	case "push":
-		if c, exists := store.pushingPool[key]; exists {
-			close(c)
+		if broadcaster, exists := store.pushingPool[key]; exists {
+			broadcaster.CloseWithError(broadcasterResult)
 			delete(store.pushingPool, key)
 		}
 	default:
 		return fmt.Errorf("Unknown pool type")
 	}
 	return nil
+}
+
+func (store *TagStore) poolRemove(kind, key string) error {
+	return store.poolRemoveWithError(kind, key, nil)
 }

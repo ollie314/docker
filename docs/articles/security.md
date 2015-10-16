@@ -39,7 +39,7 @@ of another container. Of course, if the host system is setup
 accordingly, containers can interact with each other through their
 respective network interfaces — just like they can interact with
 external hosts. When you specify public ports for your containers or use
-[*links*](/userguide/dockerlinks)
+[*links*](../userguide/dockerlinks.md)
 then IP traffic is allowed between containers. They can ping each other,
 send/receive UDP packets, and establish TCP connections, but that can be
 restricted if necessary. From a network architecture point of view, all
@@ -51,7 +51,7 @@ How mature is the code providing kernel namespaces and private
 networking? Kernel namespaces were introduced [between kernel version
 2.6.15 and
 2.6.26](http://lxc.sourceforge.net/index.php/about/kernel-namespaces/).
-This means that since July 2008 (date of the 2.6.26 release, now 5 years
+This means that since July 2008 (date of the 2.6.26 release, now 7 years
 ago), namespace code has been exercised and scrutinized on a large
 number of production systems. And there is more: the design and
 inspiration for the namespaces code are even older. Namespaces are
@@ -115,7 +115,7 @@ However, if you do that, being aware of the above mentioned security
 implication, you should ensure that it will be reachable only from a
 trusted network or VPN; or protected with e.g., `stunnel` and client SSL
 certificates. You can also secure them with [HTTPS and
-certificates](/articles/https/).
+certificates](../articles/https/).
 
 The daemon is also potentially vulnerable to other inputs, such as image
 loading from either disk with 'docker load', or from the network with

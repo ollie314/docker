@@ -46,8 +46,10 @@ RUN apt-get update && apt-get install -y \
 	libapparmor-dev \
 	libcap-dev \
 	libsqlite3-dev \
+	libsystemd-journal-dev \
 	mercurial \
 	parallel \
+	pkg-config \
 	python-mock \
 	python-pip \
 	python-websocket \
@@ -81,7 +83,7 @@ RUN cd /usr/src/lxc \
 	&& ldconfig
 
 # Install Go
-ENV GO_VERSION 1.4.2
+ENV GO_VERSION 1.4.3
 RUN curl -sSL https://golang.org/dl/go${GO_VERSION}.src.tar.gz | tar -v -C /usr/local -xz \
 	&& mkdir -p /go/bin
 ENV PATH /go/bin:/usr/local/go/bin:$PATH
@@ -128,7 +130,7 @@ RUN git clone https://github.com/golang/lint.git /go/src/github.com/golang/lint 
 RUN gem install --no-rdoc --no-ri fpm --version 1.3.2
 
 # Install registry
-ENV REGISTRY_COMMIT 2317f721a3d8428215a2b65da4ae85212ed473b4
+ENV REGISTRY_COMMIT ec87e9b6971d831f0eff752ddb54fb64693e51cd
 RUN set -x \
 	&& export GOPATH="$(mktemp -d)" \
 	&& git clone https://github.com/docker/distribution.git "$GOPATH/src/github.com/docker/distribution" \

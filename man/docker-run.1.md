@@ -21,6 +21,7 @@ docker-run - Run a command in a new container
 [**-d**|**--detach**[=*false*]]
 [**--device**[=*[]*]]
 [**--dns**[=*[]*]]
+[**--dns-opt**[=*[]*]]
 [**--dns-search**[=*[]*]]
 [**-e**|**--env**[=*[]*]]
 [**--entrypoint**[=*ENTRYPOINT*]]
@@ -31,6 +32,7 @@ docker-run - Run a command in a new container
 [**--help**]
 [**-i**|**--interactive**[=*false*]]
 [**--ipc**[=*IPC*]]
+[**--kernel-memory**[=*KERNEL-MEMORY*]]
 [**-l**|**--label**[=*[]*]]
 [**--label-file**[=*[]*]]
 [**--link**[=*[]*]]
@@ -39,6 +41,7 @@ docker-run - Run a command in a new container
 [**--lxc-conf**[=*[]*]]
 [**-m**|**--memory**[=*MEMORY*]]
 [**--mac-address**[=*MAC-ADDRESS*]]
+[**--memory-reservation**[=*MEMORY-RESERVATION*]]
 [**--memory-swap**[=*MEMORY-SWAP*]]
 [**--memory-swappiness**[=*MEMORY-SWAPPINESS*]]
 [**--name**[=*NAME*]]
@@ -52,6 +55,7 @@ docker-run - Run a command in a new container
 [**--restart**[=*RESTART*]]
 [**--rm**[=*false*]]
 [**--security-opt**[=*[]*]]
+[**--stop-signal**[=*SIGNAL*]]
 [**--sig-proxy**[=*true*]]
 [**-t**|**--tty**[=*false*]]
 [**-u**|**--user**[=*USER*]]
@@ -183,6 +187,9 @@ stopping the process by pressing the keys CTRL-P CTRL-Q.
 **--dns-search**=[]
    Set custom DNS search domains (Use --dns-search=. if you don't wish to set the search domain)
 
+**--dns-opt**=[]
+   Set custom DNS options
+
 **--dns**=[]
    Set custom DNS servers
 
@@ -216,7 +223,10 @@ ENTRYPOINT.
    Read in a line delimited file of environment variables
 
 **--expose**=[]
-   Expose a port, or a range of ports (e.g. --expose=3300-3310), from the container without publishing it to your host
+   Expose a port, or a range of ports (e.g. --expose=3300-3310) informs Docker
+that the container listens on the specified network ports at runtime. Docker
+uses this information to interconnect containers using links and to set up port
+redirection on the host system.
 
 **--group-add**=[]
    Add additional groups to run as
@@ -242,6 +252,15 @@ ENTRYPOINT.
 **-l**, **--label**=[]
    Set metadata on the container (e.g., --label com.example.key=value)
 
+**--kernel-memory**=""
+   Kernel memory limit (format: `<number>[<unit>]`, where unit = b, k, m or g)
+
+   Constrains the kernel memory available to a container. If a limit of 0
+is specified (not using `--kernel-memory`), the container's kernel memory
+is not limited. If you specify a limit, it may be rounded up to a multiple
+of the operating system's page size and the value can be very large,
+millions of trillions.
+
 **--label-file**=[]
    Read in a line delimited file of labels
 
@@ -258,15 +277,16 @@ which interface and port to use.
 **--lxc-conf**=[]
    (lxc exec-driver only) Add custom lxc options --lxc-conf="lxc.cgroup.cpuset.cpus = 0,1"
 
-**--log-driver**="|*json-file*|*syslog*|*journald*|*gelf*|*fluentd*|*none*"
+**--log-driver**="|*json-file*|*syslog*|*journald*|*gelf*|*fluentd*|*awslogs*|*none*"
   Logging driver for container. Default is defined by daemon `--log-driver` flag.
-  **Warning**: `docker logs` command works only for `json-file` logging driver.
+  **Warning**: the `docker logs` command works only for the `json-file` and
+  `journald` logging drivers.
 
 **--log-opt**=[]
   Logging driver specific options.
 
 **-m**, **--memory**=""
-   Memory limit (format: <number><optional unit>, where unit = b, k, m or g)
+   Memory limit (format: <number>[<unit>], where unit = b, k, m or g)
 
    Allows you to constrain the memory available to a container. If the host
 supports swap memory, then the **-m** memory setting can be larger than physical
@@ -274,10 +294,19 @@ RAM. If a limit of 0 is specified (not using **-m**), the container's memory is
 not limited. The actual limit may be rounded up to a multiple of the operating
 system's page size (the value would be very large, that's millions of trillions).
 
+**--memory-reservation**=""
+   Memory soft limit (format: <number>[<unit>], where unit = b, k, m or g)
+
+   After setting memory reservation, when the system detects memory contention
+or low memory, containers are forced to restrict their consumption to their
+reservation. So you should always set the value below **--memory**, otherwise the
+hard limit will take precedence. By default, memory reservation will be the same
+as memory limit.
+
 **--memory-swap**=""
    Total memory limit (memory + swap)
 
-   Set `-1` to disable swap (format: <number><optional unit>, where unit = b, k, m or g).
+   Set `-1` to disable swap (format: <number>[<unit>], where unit = b, k, m or g).
 This value should always larger than **-m**, so you should always use this with **-m**.
 
 **--mac-address**=""
@@ -324,10 +353,14 @@ ports and the exposed ports, use `docker port`.
 
 **-p**, **--publish**=[]
    Publish a container's port, or range of ports, to the host.
-                               format: ip:hostPort:containerPort | ip::containerPort | hostPort:containerPort | containerPort
-                               Both hostPort and containerPort can be specified as a range of ports. 
-                               When specifying ranges for both, the number of container ports in the range must match the number of host ports in the range. (e.g., `-p 1234-1236:1234-1236/tcp`)
-                               (use 'docker port' to see the actual mapping)
+
+   Format: `ip:hostPort:containerPort | ip::containerPort | hostPort:containerPort | containerPort`
+Both hostPort and containerPort can be specified as a range of ports. 
+When specifying ranges for both, the number of container ports in the range must match the number of host ports in the range.
+(e.g., `docker run -p 1234-1236:1222-1224 --name thisWorks -t busybox` 
+but not `docker run -p 1230-1236:1230-1240 --name RangeContainerPortsBiggerThanRangeHostPorts -t busybox`)
+With ip: `docker run -p 127.0.0.1:$HOSTPORT:$CONTAINERPORT --name CONTAINER -t someimage`
+Use `docker port` to see the actual mapping: `docker port CONTAINER $CONTAINERPORT`
 
 **--pid**=host
    Set the PID mode for the container
@@ -360,8 +393,8 @@ to write files anywhere.  By specifying the `--read-only` flag the container wil
 its root filesystem mounted as read only prohibiting any writes.
 
 **--restart**="no"
-   Restart policy to apply when a container exits (no, on-failure[:max-retry], always)
-      
+   Restart policy to apply when a container exits (no, on-failure[:max-retry], always, unless-stopped).
+
 **--rm**=*true*|*false*
    Automatically remove the container when it exits (incompatible with -d). The default is *false*.
 
@@ -373,6 +406,9 @@ its root filesystem mounted as read only prohibiting any writes.
     "label:type:TYPE"   : Set the label type for the container
     "label:level:LEVEL" : Set the label level for the container
     "label:disable"     : Turn off label confinement for the container
+
+**--stop-signal**=SIGTERM
+  Signal to stop a container. Default is SIGTERM.
 
 **--sig-proxy**=*true*|*false*
    Proxy received signals to the process (non-TTY mode only). SIGCHLD, SIGSTOP, and SIGKILL are not proxied. The default is *true*.
@@ -401,9 +437,17 @@ standard input.
 ""--ulimit""=[]
     Ulimit options
 
-**-v**, **--volume**=[]
-   Bind mount a volume (e.g., from the host: -v /host:/container, from Docker: -v /container)
-
+**-v**, **--volume**=[] Create a bind mount 
+   (format: `[host-dir:]container-dir[:<suffix options>]`, where suffix options
+are comma delimited and selected from [rw|ro] and [z|Z].)
+   
+   (e.g., using -v /host-dir:/container-dir, bind mounts /host-dir in the
+host to /container-dir in the Docker container)
+   
+   If 'host-dir' is missing, then docker automatically creates the new volume
+on the host. **This auto-creation of the host path has been deprecated in
+Release: v1.9.**
+   
    The **-v** option can be used one or
 more times to add one or more mounts to a container. These mounts can then be
 used in other containers using the **--volumes-from** option.
@@ -425,7 +469,18 @@ content label. Shared volume labels allow all containers to read/write content.
 The `Z` option tells Docker to label the content with a private unshared label.
 Only the current container can use a private volume.
 
-Note: Multiple Volume options can be added separated by a ","
+The `container-dir` must always be an absolute path such as `/src/docs`. 
+The `host-dir` can either be an absolute path or a `name` value. If you 
+supply an absolute path for the `host-dir`, Docker bind-mounts to the path 
+you specify. If you supply a `name`, Docker creates a named volume by that `name`.
+
+A `name` value must start with start with an alphanumeric character, 
+followed by `a-z0-9`, `_` (underscore), `.` (period) or `-` (hyphen). 
+An absolute path starts with a `/` (forward slash).
+
+For example, you can specify either `/foo` or `foo` for a `host-dir` value. 
+If you supply the `/foo` value, Docker creates a bind-mount. If you supply 
+the `foo` specification, Docker creates a named volume.
 
 **--volumes-from**=[]
    Mount volumes from the specified container(s)

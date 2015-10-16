@@ -2,7 +2,10 @@
 
 package daemon
 
-import "github.com/docker/docker/api/types"
+import (
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/versions/v1p19"
+)
 
 // This sets platform-specific fields
 func setPlatformSpecificContainerFields(container *Container, contJSONBase *types.ContainerJSONBase) *types.ContainerJSONBase {
@@ -14,7 +17,8 @@ func setPlatformSpecificContainerFields(container *Container, contJSONBase *type
 	return contJSONBase
 }
 
-func (daemon *Daemon) ContainerInspectPre120(name string) (*types.ContainerJSONPre120, error) {
+// ContainerInspectPre120 gets containers for pre 1.20 APIs.
+func (daemon *Daemon) ContainerInspectPre120(name string) (*v1p19.ContainerJSON, error) {
 	container, err := daemon.Get(name)
 	if err != nil {
 		return nil, err
@@ -23,7 +27,7 @@ func (daemon *Daemon) ContainerInspectPre120(name string) (*types.ContainerJSONP
 	container.Lock()
 	defer container.Unlock()
 
-	base, err := daemon.getInspectData(container)
+	base, err := daemon.getInspectData(container, false)
 	if err != nil {
 		return nil, err
 	}
@@ -35,15 +39,16 @@ func (daemon *Daemon) ContainerInspectPre120(name string) (*types.ContainerJSONP
 		volumesRW[m.Destination] = m.RW
 	}
 
-	config := &types.ContainerConfig{
+	config := &v1p19.ContainerConfig{
 		container.Config,
+		container.hostConfig.VolumeDriver,
 		container.hostConfig.Memory,
 		container.hostConfig.MemorySwap,
 		container.hostConfig.CPUShares,
 		container.hostConfig.CpusetCpus,
 	}
 
-	return &types.ContainerJSONPre120{base, volumes, volumesRW, config}, nil
+	return &v1p19.ContainerJSON{base, volumes, volumesRW, config}, nil
 }
 
 func addMountPoints(container *Container) []types.MountPoint {

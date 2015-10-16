@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/daemon/execdriver"
@@ -69,6 +70,8 @@ type containerInit struct {
 	IgnoreFlushesDuringBoot bool     // Optimisation hint for container startup in Windows
 	LayerFolderPath         string   // Where the layer folders are located
 	Layers                  []layer  // List of storage layers
+	ProcessorWeight         int64    // CPU Shares 1..9 on Windows; or 0 is platform default.
+	HostName                string   // Hostname
 }
 
 // defaultOwner is a tag passed to HCS to allow it to differentiate between
@@ -77,7 +80,7 @@ type containerInit struct {
 const defaultOwner = "docker"
 
 // Run implements the exec driver Driver interface
-func (d *Driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallback execdriver.StartCallback) (execdriver.ExitStatus, error) {
+func (d *Driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, hooks execdriver.Hooks) (execdriver.ExitStatus, error) {
 
 	var (
 		term execdriver.Terminal
@@ -98,6 +101,8 @@ func (d *Driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallba
 		VolumePath:              c.Rootfs,
 		IgnoreFlushesDuringBoot: c.FirstStart,
 		LayerFolderPath:         c.LayerFolder,
+		ProcessorWeight:         c.Resources.CPUShares,
+		HostName:                c.Hostname,
 	}
 
 	for i := 0; i < len(c.LayerPaths); i++ {
@@ -215,22 +220,19 @@ func (d *Driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallba
 	}
 	defer func() {
 		// Stop the container
-
-		if terminateMode {
-			logrus.Debugf("Terminating container %s", c.ID)
-			if err := hcsshim.TerminateComputeSystem(c.ID); err != nil {
-				// IMPORTANT: Don't fail if fails to change state. It could already
-				// have been stopped through kill().
-				// Otherwise, the docker daemon will hang in job wait()
-				logrus.Warnf("Ignoring error from TerminateComputeSystem %s", err)
+		if forceKill {
+			logrus.Debugf("Forcibly terminating container %s", c.ID)
+			if errno, err := hcsshim.TerminateComputeSystem(c.ID, hcsshim.TimeoutInfinite, "exec-run-defer"); err != nil {
+				logrus.Warnf("Ignoring error from TerminateComputeSystem 0x%X %s", errno, err)
 			}
 		} else {
 			logrus.Debugf("Shutting down container %s", c.ID)
-			if err := hcsshim.ShutdownComputeSystem(c.ID); err != nil {
-				// IMPORTANT: Don't fail if fails to change state. It could already
-				// have been stopped through kill().
-				// Otherwise, the docker daemon will hang in job wait()
-				logrus.Warnf("Ignoring error from ShutdownComputeSystem %s", err)
+			if errno, err := hcsshim.ShutdownComputeSystem(c.ID, hcsshim.TimeoutInfinite, "exec-run-defer"); err != nil {
+				if errno != hcsshim.Win32SystemShutdownIsInProgress &&
+					errno != hcsshim.Win32SpecifiedPathInvalid &&
+					errno != hcsshim.Win32SystemCannotFindThePathSpecified {
+					logrus.Warnf("Ignoring error from ShutdownComputeSystem 0x%X %s", errno, err)
+				}
 			}
 		}
 	}()
@@ -256,7 +258,7 @@ func (d *Driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallba
 	createProcessParms.CommandLine = c.ProcessConfig.Entrypoint
 	for _, arg := range c.ProcessConfig.Arguments {
 		logrus.Debugln("appending ", arg)
-		createProcessParms.CommandLine += " " + arg
+		createProcessParms.CommandLine += " " + syscall.EscapeArg(arg)
 	}
 	logrus.Debugf("CommandLine: %s", createProcessParms.CommandLine)
 
@@ -290,18 +292,36 @@ func (d *Driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallba
 	}
 	d.Unlock()
 
-	// Invoke the start callback
-	if startCallback != nil {
-		startCallback(&c.ProcessConfig, int(pid))
+	if hooks.Start != nil {
+		// A closed channel for OOM is returned here as it will be
+		// non-blocking and return the correct result when read.
+		chOOM := make(chan struct{})
+		close(chOOM)
+		hooks.Start(&c.ProcessConfig, int(pid), chOOM)
 	}
 
-	var exitCode int32
-	exitCode, err = hcsshim.WaitForProcessInComputeSystem(c.ID, pid)
+	var (
+		exitCode int32
+		errno    uint32
+	)
+	exitCode, errno, err = hcsshim.WaitForProcessInComputeSystem(c.ID, pid, hcsshim.TimeoutInfinite)
 	if err != nil {
-		logrus.Errorf("Failed to WaitForProcessInComputeSystem %s", err)
-		return execdriver.ExitStatus{ExitCode: -1}, err
+		if errno != hcsshim.Win32PipeHasBeenEnded {
+			logrus.Warnf("WaitForProcessInComputeSystem failed (container may have been killed): %s", err)
+		}
+		// Do NOT return err here as the container would have
+		// started, otherwise docker will deadlock. It's perfectly legitimate
+		// for WaitForProcessInComputeSystem to fail in situations such
+		// as the container being killed on another thread.
+		return execdriver.ExitStatus{ExitCode: hcsshim.WaitErrExecFailed}, nil
 	}
 
 	logrus.Debugf("Exiting Run() exitCode %d id=%s", exitCode, c.ID)
 	return execdriver.ExitStatus{ExitCode: int(exitCode)}, nil
+}
+
+// SupportsHooks implements the execdriver Driver interface.
+// The windows driver does not support the hook mechanism
+func (d *Driver) SupportsHooks() bool {
+	return false
 }

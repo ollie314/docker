@@ -3,16 +3,19 @@
 package daemon
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/docker/docker/daemon/execdriver"
+	derr "github.com/docker/docker/errors"
+	"github.com/docker/libnetwork"
 )
 
-// This is deliberately empty on Windows as the default path will be set by
+// DefaultPathEnv is deliberately empty on Windows as the default path will be set by
 // the container. Docker has no context of what the default path should be.
 const DefaultPathEnv = ""
 
+// Container holds fields specific to the Windows implementation. See
+// CommonContainer for standard fields common to all containers.
 type Container struct {
 	CommonContainer
 
@@ -20,14 +23,6 @@ type Container struct {
 }
 
 func killProcessDirectly(container *Container) error {
-	return nil
-}
-
-func (container *Container) setupContainerDns() error {
-	return nil
-}
-
-func (container *Container) updateParentsHosts() error {
 	return nil
 }
 
@@ -41,6 +36,16 @@ func (container *Container) createDaemonEnvironment(linkedEnv []string) []string
 }
 
 func (container *Container) initializeNetworking() error {
+	return nil
+}
+
+// ConnectToNetwork connects a container to the network
+func (container *Container) ConnectToNetwork(idOrName string) error {
+	return nil
+}
+
+// DisconnectFromNetwork disconnects a container from, the network
+func (container *Container) DisconnectFromNetwork(n libnetwork.Network) error {
 	return nil
 }
 
@@ -60,7 +65,7 @@ func populateCommand(c *Container, env []string) error {
 		if !c.Config.NetworkDisabled {
 			en.Interface = &execdriver.NetworkInterface{
 				MacAddress:   c.Config.MacAddress,
-				Bridge:       c.daemon.config.Bridge.VirtualSwitchName,
+				Bridge:       c.daemon.configStore.Bridge.VirtualSwitchName,
 				PortBindings: c.hostConfig.PortBindings,
 
 				// TODO Windows. Include IPAddress. There already is a
@@ -70,7 +75,7 @@ func populateCommand(c *Container, env []string) error {
 			}
 		}
 	default:
-		return fmt.Errorf("invalid network mode: %s", c.hostConfig.NetworkMode)
+		return derr.ErrorCodeInvalidNetworkMode.WithArgs(c.hostConfig.NetworkMode)
 	}
 
 	pid := &execdriver.Pid{}
@@ -78,8 +83,10 @@ func populateCommand(c *Container, env []string) error {
 	// TODO Windows. This can probably be factored out.
 	pid.HostPid = c.hostConfig.PidMode.IsHost()
 
-	// TODO Windows. Resource controls to be implemented later.
-	resources := &execdriver.Resources{}
+	// TODO Windows. More resource controls to be implemented later.
+	resources := &execdriver.Resources{
+		CPUShares: c.hostConfig.CPUShares,
+	}
 
 	// TODO Windows. Further refactoring required (privileged/user)
 	processConfig := execdriver.ProcessConfig{
@@ -96,29 +103,29 @@ func populateCommand(c *Container, env []string) error {
 	var layerPaths []string
 	img, err := c.daemon.graph.Get(c.ImageID)
 	if err != nil {
-		return fmt.Errorf("Failed to graph.Get on ImageID %s - %s", c.ImageID, err)
+		return derr.ErrorCodeGetGraph.WithArgs(c.ImageID, err)
 	}
 	for i := img; i != nil && err == nil; i, err = c.daemon.graph.GetParent(i) {
 		lp, err := c.daemon.driver.Get(i.ID, "")
 		if err != nil {
-			return fmt.Errorf("Failed to get layer path from graphdriver %s for ImageID %s - %s", c.daemon.driver.String(), i.ID, err)
+			return derr.ErrorCodeGetLayer.WithArgs(c.daemon.driver.String(), i.ID, err)
 		}
 		layerPaths = append(layerPaths, lp)
 		err = c.daemon.driver.Put(i.ID)
 		if err != nil {
-			return fmt.Errorf("Failed to put layer path from graphdriver %s for ImageID %s - %s", c.daemon.driver.String(), i.ID, err)
+			return derr.ErrorCodePutLayer.WithArgs(c.daemon.driver.String(), i.ID, err)
 		}
 	}
 	m, err := c.daemon.driver.GetMetadata(c.ID)
 	if err != nil {
-		return fmt.Errorf("Failed to get layer metadata - %s", err)
+		return derr.ErrorCodeGetLayerMetadata.WithArgs(err)
 	}
 	layerFolder := m["dir"]
 
 	// TODO Windows: Factor out remainder of unused fields.
 	c.command = &execdriver.Command{
 		ID:             c.ID,
-		Rootfs:         c.RootfsPath(),
+		Rootfs:         c.rootfsPath(),
 		ReadonlyRootfs: c.hostConfig.ReadonlyRootfs,
 		InitPath:       "/.dockerinit",
 		WorkingDir:     c.Config.WorkingDir,
@@ -128,38 +135,41 @@ func populateCommand(c *Container, env []string) error {
 		CapAdd:         c.hostConfig.CapAdd.Slice(),
 		CapDrop:        c.hostConfig.CapDrop.Slice(),
 		ProcessConfig:  processConfig,
-		ProcessLabel:   c.GetProcessLabel(),
-		MountLabel:     c.GetMountLabel(),
+		ProcessLabel:   c.getProcessLabel(),
+		MountLabel:     c.getMountLabel(),
 		FirstStart:     !c.HasBeenStartedBefore,
 		LayerFolder:    layerFolder,
 		LayerPaths:     layerPaths,
+		Hostname:       c.Config.Hostname,
 	}
 
 	return nil
 }
 
-// GetSize, return real size, virtual size
-func (container *Container) GetSize() (int64, int64) {
+// GetSize returns real size & virtual size
+func (container *Container) getSize() (int64, int64) {
 	// TODO Windows
 	return 0, 0
 }
 
-func (container *Container) AllocateNetwork() error {
+// setNetworkNamespaceKey is a no-op on Windows.
+func (container *Container) setNetworkNamespaceKey(pid int) error {
 	return nil
 }
 
-func (container *Container) UpdateNetwork() error {
+// allocateNetwork is a no-op on Windows.
+func (container *Container) allocateNetwork() error {
 	return nil
 }
 
-func (container *Container) ReleaseNetwork() {
-}
-
-func (container *Container) RestoreNetwork() error {
+func (container *Container) updateNetwork() error {
 	return nil
 }
 
-func (container *Container) UnmountVolumes(forceSyscall bool) error {
+func (container *Container) releaseNetwork() {
+}
+
+func (container *Container) unmountVolumes(forceSyscall bool) error {
 	return nil
 }
 
@@ -169,6 +179,22 @@ func (container *Container) prepareMountPoints() error {
 }
 
 // removeMountPoints is a no-op on Windows.
-func (container *Container) removeMountPoints() error {
+func (container *Container) removeMountPoints(_ bool) error {
 	return nil
+}
+
+func (container *Container) setupIpcDirs() error {
+	return nil
+}
+
+func (container *Container) unmountIpcMounts() error {
+	return nil
+}
+
+func (container *Container) ipcMounts() []execdriver.Mount {
+	return nil
+}
+
+func getDefaultRouteMtu() (int, error) {
+	return -1, errSystemNotSupported
 }

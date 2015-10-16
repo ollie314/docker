@@ -1,6 +1,12 @@
 package daemon
 
-import "syscall"
+import (
+	"fmt"
+	"runtime"
+	"syscall"
+
+	"github.com/docker/docker/pkg/signal"
+)
 
 // ContainerKill send signal to the container
 // If no signal is given (sig 0), then Kill with SIGKILL and wait
@@ -12,6 +18,10 @@ func (daemon *Daemon) ContainerKill(name string, sig uint64) error {
 		return err
 	}
 
+	if sig != 0 && !signal.ValidSignalForPlatform(syscall.Signal(sig)) {
+		return fmt.Errorf("The %s daemon does not support signal %d", runtime.GOOS, sig)
+	}
+
 	// If no signal is passed, or SIGKILL, perform regular Kill (SIGKILL + wait())
 	if sig == 0 || syscall.Signal(sig) == syscall.SIGKILL {
 		if err := container.Kill(); err != nil {
@@ -19,7 +29,7 @@ func (daemon *Daemon) ContainerKill(name string, sig uint64) error {
 		}
 	} else {
 		// Otherwise, just send the requested signal
-		if err := container.KillSig(int(sig)); err != nil {
+		if err := container.killSig(int(sig)); err != nil {
 			return err
 		}
 	}

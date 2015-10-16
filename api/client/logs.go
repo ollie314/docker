@@ -2,7 +2,6 @@ package client
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/url"
 	"time"
 
@@ -16,7 +15,7 @@ import (
 //
 // docker logs [OPTIONS] CONTAINER
 func (cli *DockerCli) CmdLogs(args ...string) error {
-	cmd := Cli.Subcmd("logs", []string{"CONTAINER"}, "Fetch the logs of a container", true)
+	cmd := Cli.Subcmd("logs", []string{"CONTAINER"}, Cli.DockerCommands["logs"].Description, true)
 	follow := cmd.Bool([]string{"f", "-follow"}, false, "Follow log output")
 	since := cmd.String([]string{"-since"}, "", "Show logs since timestamp")
 	times := cmd.Bool([]string{"t", "-timestamps"}, false, "Show timestamps")
@@ -35,10 +34,6 @@ func (cli *DockerCli) CmdLogs(args ...string) error {
 	var c types.ContainerJSON
 	if err := json.NewDecoder(serverResp.body).Decode(&c); err != nil {
 		return err
-	}
-
-	if logType := c.HostConfig.LogConfig.Type; logType != "json-file" {
-		return fmt.Errorf("\"logs\" command is supported only for \"json-file\" logging driver (got: %s)", logType)
 	}
 
 	v := url.Values{}

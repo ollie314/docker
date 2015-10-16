@@ -5,7 +5,6 @@ description = "The inspect command description and usage"
 keywords = ["inspect, container, json"]
 [menu.main]
 parent = "smn_cli"
-weight=1
 +++
 <![end-metadata]-->
 
@@ -15,10 +14,11 @@ weight=1
 
     Return low-level information on a container or image
 
-      -f, --format=""    Format the output using the given go template
-
-     --type=container|image  Return JSON for specified type, permissible 
-                             values are "image" or "container"
+      -f, --format=""         Format the output using the given go template
+      --help=false            Print usage
+      --type=container|image  Return JSON for specified type, permissible
+                              values are "image" or "container"
+      -s, --size=false        Display total file sizes if the type is container
 
 By default, this will render all results in a JSON array. If a format is
 specified, the given template will be executed for each result.
@@ -73,4 +73,3 @@ section contains complex JSON object, so to grab it as JSON, you use
 `json` to convert the configuration object into JSON.
 
     $ docker inspect --format='{{json .config}}' $INSTANCE_ID
-

@@ -22,7 +22,7 @@ You use the `docker` repository and its `Dockerfile` to create a Docker image,
 run a Docker container, and develop code in the container. Docker itself builds,
 tests, and releases new Docker versions using this container.
 
-If you followed the procedures that <a href="/project/set-up-git" target="_blank">
+If you followed the procedures that <a href="/engine/project/set-up-git" target="_blank">
 set up Git for contributing</a>, you should have a fork of the `docker/docker`
 repository. You also created a branch called `dry-run-test`. In this section,
 you continue working with your fork on this branch.
@@ -34,7 +34,7 @@ hosts of unnecessary Docker artifacts such as stopped containers or unused
 images. Cleaning unnecessary artifacts isn't strictly necessary, but it is
 good practice, so it is included here.
 
-To remove unnecessary artifacts,
+To remove unnecessary artifacts:
 
 1. Verify that you have no unnecessary containers running on your host.
 
@@ -105,7 +105,7 @@ environment.
         $ cd ~/repos/docker-fork 
         
 	If you are following along with this guide, you created a `dry-run-test`
-	branch when you <a href="/project/set-up-git" target="_blank"> set up Git for
+	branch when you <a href="/engine/project/set-up-git" target="_blank"> set up Git for
 	contributing</a>.
 
 4. Ensure you are on your `dry-run-test` branch.
@@ -205,7 +205,7 @@ build and run a `docker` binary in your container.
 
     At this point, you'll have about three terminals open.
 
-    ![Multiple terminals](/project/images/three_terms.png)
+    ![Multiple terminals](images/three_terms.png)
 
     Mac OS X users, make sure you run `eval "$(docker-machine env your_vm_name)"` in
     any new terminals.
@@ -226,7 +226,7 @@ build and run a `docker` binary in your container.
     `/go/src/github.com/docker/docker` directory. Try listing the contents to
     verify they are the same as that of your `docker-fork` repo.
 
-    ![List example](/project/images/list_example.png)
+    ![List example](images/list_example.png)
 
 
 3. Investigate your container bit. 
@@ -287,7 +287,7 @@ with the `make.sh` script.
 
         root@5f8630b873fe:/go/src/github.com/docker/docker#  docker daemon -D
 
-    The `-dD` flag starts the daemon in debug mode. You'll find this useful
+    The `-D` flag starts the daemon in debug mode. You'll find this useful
     when debugging your code.
 
 9. Bring up one of the terminals on your local host.
@@ -336,7 +336,7 @@ with the `make.sh` script.
     You should see the image load and return. Meanwhile, you
     can see the calls made via the debug session in your other terminal.
 
-    ![List example](/project/images/three_running.png)
+    ![List example](images/three_running.png)
 
 
 ## Restart a container with your source
@@ -423,4 +423,4 @@ Congratulations, you have successfully achieved Docker inception. At this point,
 you've set up your development environment and verified almost all the essential
 processes you need to contribute. Of course, before you start contributing, 
 [you'll need to learn one more piece of the development environment, the test
-framework](/project/test-and-docs/).
+framework](test-and-docs.md).

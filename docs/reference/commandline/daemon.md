@@ -5,7 +5,7 @@ description = "The daemon command description and usage"
 keywords = ["container, daemon, runtime"]
 [menu.main]
 parent = "smn_cli"
-weight=1
+weight = -1
 +++
 <![end-metadata]-->
 
@@ -22,7 +22,11 @@ weight=1
       -D, --debug=false                      Enable debug mode
       --default-gateway=""                   Container default gateway IPv4 address
       --default-gateway-v6=""                Container default gateway IPv6 address
+      --cluster-store=""                     URL of the distributed storage backend
+      --cluster-advertise=""                 Address of the daemon instance to advertise
+      --cluster-store-opt=map[]              Set cluster options
       --dns=[]                               DNS server to use
+      --dns-opt=[]                           DNS options to use
       --dns-search=[]                        DNS search domains to use
       --default-ulimit=[]                    Set default ulimit settings for containers
       -e, --exec-driver="native"             Exec driver to use
@@ -46,6 +50,7 @@ weight=1
       --log-driver="json-file"               Default driver for container logs
       --log-opt=[]                           Log driver specific options
       --mtu=0                                Set the containers network MTU
+      --disable-legacy-registry=false        Do not contact legacy registries
       -p, --pidfile="/var/run/docker.pid"    Path to use for daemon PID file
       --registry-mirror=[]                   Preferred Docker registry mirror
       -s, --storage-driver=""                Storage driver to use
@@ -68,7 +73,7 @@ To run the daemon with debug output, use `docker daemon -D`.
 
 ## Daemon socket option
 
-The Docker daemon can listen for [Docker Remote API](/reference/api/docker_remote_api/)
+The Docker daemon can listen for [Docker Remote API](../api/docker_remote_api.md)
 requests via three different types of Socket: `unix`, `tcp`, and `fd`.
 
 By default, a `unix` domain socket (or IPC socket) is created at
@@ -78,7 +83,7 @@ membership.
 If you need to access the Docker daemon remotely, you need to enable the `tcp`
 Socket. Beware that the default setup provides un-encrypted and
 un-authenticated direct access to the Docker daemon - and should be secured
-either using the [built in HTTPS encrypted socket](/articles/https/), or by
+either using the [built in HTTPS encrypted socket](../../articles/https/), or by
 putting a secure web proxy in front of it. You can listen on port `2375` on all
 network interfaces with `-H tcp://0.0.0.0:2375`, or on a particular network
 interface using its IP address: `-H tcp://192.168.59.103:2375`. It is
@@ -183,7 +188,7 @@ options for `zfs` start with `zfs`.
 
      If using a block device for device mapper storage, it is best to use `lvm`
      to create and manage the thin-pool volume. This volume is then handed to Docker
-     to exclusively create snapshot volumes needed for images and containers.  
+     to exclusively create snapshot volumes needed for images and containers.
 
      Managing the thin-pool outside of Docker makes for the most feature-rich
      method of having Docker utilize device mapper thin provisioning as the
@@ -191,6 +196,12 @@ options for `zfs` start with `zfs`.
      thin-pool management feature include: automatic or interactive thin-pool
      resize support, dynamically changing thin-pool features, automatic thinp
      metadata checking when lvm activates the thin-pool, etc.
+
+     As a fallback if no thin pool is provided, loopback files will be
+     created. Loopback is very slow, but can be used without any
+     pre-configuration of storage. It is strongly recommended that you do
+     not use loopback in production. Ensure your Docker daemon has a
+     `--storage-opt dm.thinpooldev` argument provided.
 
      Example use:
 
@@ -219,7 +230,7 @@ options for `zfs` start with `zfs`.
  *  `dm.loopdatasize`
 
     >**Note**: This option configures devicemapper loopback, which should not be used in production.
-		
+
     Specifies the size to use when creating the loopback file for the
     "data" device which is used for the thin pool. The default size is
     100G. The file is sparse, so it will not initially take up this
@@ -358,6 +369,46 @@ options for `zfs` start with `zfs`.
     > Otherwise, set this flag for migrating existing Docker daemons to
     > a daemon with a supported environment.
 
+ *  `dm.use_deferred_removal`
+
+    Enables use of deferred device removal if `libdm` and the kernel driver
+    support the mechanism.
+
+    Deferred device removal means that if device is busy when devices are
+    being removed/deactivated, then a deferred removal is scheduled on
+    device. And devices automatically go away when last user of the device
+    exits.
+
+    For example, when a container exits, its associated thin device is removed.
+    If that device has leaked into some other mount namespace and can't be
+    removed, the container exit still succeeds and this option causes the
+    system to schedule the device for deferred removal. It does not wait in a
+    loop trying to remove a busy device.
+
+    Example use: `docker daemon --storage-opt dm.use_deferred_removal=true`
+
+ *  `dm.use_deferred_deletion`
+
+    Enables use of deferred device deletion for thin pool devices. By default,
+    thin pool device deletion is synchronous. Before a container is deleted,
+    the Docker daemon removes any associated devices. If the storage driver
+    can not remove a device, the container deletion fails and daemon returns.
+
+    `Error deleting container: Error response from daemon: Cannot destroy container`
+
+    To avoid this failure, enable both deferred device deletion and deferred
+    device removal on the daemon.
+
+    `docker daemon --storage-opt dm.use_deferred_deletion=true --storage-opt dm.use_deferred_removal=true`
+
+    With these two options enabled, if a device is busy when the driver is
+    deleting a container, the driver marks the device as deleted. Later, when
+    the device isn't in use, the driver deletes it.
+
+    In general it should be safe to enable this option by default. It will help
+    when unintentional leaking of mount point happens across multiple mount
+    namespaces.
+
 Currently supported options of `zfs`:
 
  * `zfs.fsname`
@@ -442,6 +493,16 @@ Local registries, whose IP address falls in the 127.0.0.0/8 range, are
 automatically marked as insecure as of Docker 1.3.2. It is not recommended to
 rely on this, as it may change in the future.
 
+Enabling `--insecure-registry`, i.e., allowing un-encrypted and/or untrusted
+communication, can be useful when running a local registry.  However,
+because its use creates security vulnerabilities it should ONLY be enabled for
+testing purposes.  For increased security, users should add their CA to their
+system's list of trusted CAs instead of enabling `--insecure-registry`.
+
+## Legacy Registries
+
+Enabling `--disable-legacy-registry` forces a docker daemon to only interact with registries which support the V2 protocol.  Specifically, the daemon will not attempt `push`, `pull` and `login` to v1 registries.  The exception to this is `search` which can still be performed on v1 registries.
+
 ## Running a Docker daemon behind a HTTPS_PROXY
 
 When running inside a LAN that uses a `HTTPS` proxy, the Docker Hub
@@ -464,12 +525,52 @@ use the proxy
 `--default-ulimit` allows you to set the default `ulimit` options to use for
 all containers. It takes the same options as `--ulimit` for `docker run`. If
 these defaults are not set, `ulimit` settings will be inherited, if not set on
-`docker run`, from the Docker daemon. Any `--ulimit` options passed to 
+`docker run`, from the Docker daemon. Any `--ulimit` options passed to
 `docker run` will overwrite these defaults.
 
 Be careful setting `nproc` with the `ulimit` flag as `nproc` is designed by Linux to
 set the maximum number of processes available to a user, not to a container. For details
 please check the [run](run.md) reference.
+
+## Nodes discovery
+
+`--cluster-advertise` specifies the 'host:port' combination that this particular
+daemon instance should use when advertising itself to the cluster. The daemon
+is reached by remote hosts on this 'host:port' combination.
+
+The daemon uses [libkv](https://github.com/docker/libkv/) to advertise
+the node within the cluster.  Some Key/Value backends support mutual
+TLS, and the client TLS settings used by the daemon can be configured
+using the `--cluster-store-opt` flag, specifying the paths to PEM encoded
+files. For example:
+
+```bash
+docker daemon \
+    --cluster-advertise 192.168.1.2:2376 \
+    --cluster-store etcd://192.168.1.2:2379 \
+    --cluster-store-opt kv.cacertfile=/path/to/ca.pem \
+    --cluster-store-opt kv.certfile=/path/to/cert.pem \
+    --cluster-store-opt kv.keyfile=/path/to/key.pem
+```
+
+The currently supported cluster store options are:
+
+*  `kv.cacertfile`
+
+    Specifies the path to a local file with PEM encoded CA certificates to trust
+
+*  `kv.certfile`
+
+    Specifies the path to a local file with a PEM encoded certificate.  This
+    certificate is used as the client cert for communication with the
+    Key/Value store.
+
+*  `kv.keyfile`
+
+    Specifies the path to a local file with a PEM encoded private key.  This
+    private key is used as the client key for communication with the
+    Key/Value store.
+
 
 ## Miscellaneous options
 
@@ -485,5 +586,3 @@ set like this:
     # or
     export DOCKER_TMPDIR=/mnt/disk2/tmp
     /usr/local/bin/docker daemon -D -g /var/lib/docker -H unix:// > /var/lib/docker-machine/docker.log 2>&1
-
-

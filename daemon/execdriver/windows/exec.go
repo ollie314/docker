@@ -12,12 +12,13 @@ import (
 )
 
 // Exec implements the exec driver Driver interface.
-func (d *Driver) Exec(c *execdriver.Command, processConfig *execdriver.ProcessConfig, pipes *execdriver.Pipes, startCallback execdriver.StartCallback) (int, error) {
+func (d *Driver) Exec(c *execdriver.Command, processConfig *execdriver.ProcessConfig, pipes *execdriver.Pipes, hooks execdriver.Hooks) (int, error) {
 
 	var (
 		term     execdriver.Terminal
 		err      error
 		exitCode int32
+		errno    uint32
 	)
 
 	active := d.activeContainers[c.ID]
@@ -69,16 +70,23 @@ func (d *Driver) Exec(c *execdriver.Command, processConfig *execdriver.ProcessCo
 	processConfig.Terminal = term
 
 	// Invoke the start callback
-	if startCallback != nil {
-		startCallback(&c.ProcessConfig, int(pid))
+	if hooks.Start != nil {
+		// A closed channel for OOM is returned here as it will be
+		// non-blocking and return the correct result when read.
+		chOOM := make(chan struct{})
+		close(chOOM)
+		hooks.Start(&c.ProcessConfig, int(pid), chOOM)
 	}
 
-	if exitCode, err = hcsshim.WaitForProcessInComputeSystem(c.ID, pid); err != nil {
-		logrus.Errorf("Failed to WaitForProcessInComputeSystem %s", err)
+	if exitCode, errno, err = hcsshim.WaitForProcessInComputeSystem(c.ID, pid, hcsshim.TimeoutInfinite); err != nil {
+		if errno == hcsshim.Win32PipeHasBeenEnded {
+			logrus.Debugf("Exiting Run() after WaitForProcessInComputeSystem failed with recognised error 0x%X", errno)
+			return hcsshim.WaitErrExecFailed, nil
+		}
+		logrus.Warnf("WaitForProcessInComputeSystem failed (container may have been killed): 0x%X %s", errno, err)
 		return -1, err
 	}
 
-	// TODO Windows - Do something with this exit code
-	logrus.Debugln("Exiting Run() with ExitCode 0", c.ID)
+	logrus.Debugln("Exiting Run()", c.ID)
 	return int(exitCode), nil
 }

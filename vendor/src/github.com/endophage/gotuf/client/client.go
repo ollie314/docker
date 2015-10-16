@@ -175,19 +175,7 @@ func (c *Client) downloadRoot() error {
 	var s *data.Signed
 	var raw []byte
 	if download {
-		logrus.Debug("downloading new root")
-		raw, err = c.remote.GetMeta(role, size)
-		if err != nil {
-			return err
-		}
-		hash := sha256.Sum256(raw)
-		if expectedSha256 != nil && !bytes.Equal(hash[:], expectedSha256) {
-			// if we don't have an expected sha256, we're going to trust the root
-			// based purely on signature and expiry time validation
-			return fmt.Errorf("Remote root sha256 did not match snapshot root sha256: %#x vs. %#x", hash, []byte(expectedSha256))
-		}
-		s = &data.Signed{}
-		err = json.Unmarshal(raw, s)
+		raw, s, err = c.downloadSigned(role, size, expectedSha256)
 		if err != nil {
 			return err
 		}
@@ -223,7 +211,12 @@ func (c Client) verifyRoot(role string, s *data.Signed, minVersion int) error {
 	// This will cause keyDB to get updated, overwriting any keyIDs associated
 	// with the roles in root.json
 	logrus.Debug("updating known root roles and keys")
-	err = c.local.SetRoot(s)
+	root, err := data.RootFromSigned(s)
+	if err != nil {
+		logrus.Error(err.Error())
+		return err
+	}
+	err = c.local.SetRoot(root)
 	if err != nil {
 		logrus.Error(err.Error())
 		return err
@@ -242,6 +235,8 @@ func (c Client) verifyRoot(role string, s *data.Signed, minVersion int) error {
 }
 
 // downloadTimestamp is responsible for downloading the timestamp.json
+// Timestamps are special in that we ALWAYS attempt to download and only
+// use cache if the download fails (and the cache is still valid).
 func (c *Client) downloadTimestamp() error {
 	logrus.Debug("downloadTimestamp")
 	role := data.RoleName("timestamp")
@@ -266,7 +261,6 @@ func (c *Client) downloadTimestamp() error {
 	}
 	// unlike root, targets and snapshot, always try and download timestamps
 	// from remote, only using the cache one if we couldn't reach remote.
-	logrus.Debug("Downloading timestamp")
 	raw, err := c.remote.GetMeta(role, maxSize)
 	var s *data.Signed
 	if err != nil || len(raw) == 0 {
@@ -281,6 +275,7 @@ func (c *Client) downloadTimestamp() error {
 			}
 			return err
 		}
+		logrus.Debug("using cached timestamp")
 		s = old
 	} else {
 		download = true
@@ -298,7 +293,11 @@ func (c *Client) downloadTimestamp() error {
 	if download {
 		c.cache.SetMeta(role, raw)
 	}
-	c.local.SetTimestamp(s)
+	ts, err := data.TimestampFromSigned(s)
+	if err != nil {
+		return err
+	}
+	c.local.SetTimestamp(ts)
 	return nil
 }
 
@@ -342,17 +341,7 @@ func (c *Client) downloadSnapshot() error {
 	}
 	var s *data.Signed
 	if download {
-		logrus.Debug("downloading new snapshot")
-		raw, err = c.remote.GetMeta(role, size)
-		if err != nil {
-			return err
-		}
-		genHash := sha256.Sum256(raw)
-		if !bytes.Equal(genHash[:], expectedSha256) {
-			return fmt.Errorf("Retrieved snapshot did not verify against hash in timestamp.")
-		}
-		s = &data.Signed{}
-		err = json.Unmarshal(raw, s)
+		raw, s, err = c.downloadSigned(role, size, expectedSha256)
 		if err != nil {
 			return err
 		}
@@ -366,7 +355,11 @@ func (c *Client) downloadSnapshot() error {
 		return err
 	}
 	logrus.Debug("successfully verified snapshot")
-	c.local.SetSnapshot(s)
+	snap, err := data.SnapshotFromSigned(s)
+	if err != nil {
+		return err
+	}
+	c.local.SetSnapshot(snap)
 	if download {
 		err = c.cache.SetMeta(role, raw)
 		if err != nil {
@@ -377,8 +370,7 @@ func (c *Client) downloadSnapshot() error {
 }
 
 // downloadTargets is responsible for downloading any targets file
-// including delegates roles. It will download the whole tree of
-// delegated roles below the given one
+// including delegates roles.
 func (c *Client) downloadTargets(role string) error {
 	role = data.RoleName(role) // this will really only do something for base targets role
 	snap := c.local.Snapshot.Signed
@@ -393,12 +385,34 @@ func (c *Client) downloadTargets(role string) error {
 		logrus.Error("Error getting targets file:", err)
 		return err
 	}
-	err = c.local.SetTargets(role, s)
+	t, err := data.TargetsFromSigned(s)
+	if err != nil {
+		return err
+	}
+	err = c.local.SetTargets(role, t)
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (c *Client) downloadSigned(role string, size int64, expectedSha256 []byte) ([]byte, *data.Signed, error) {
+	logrus.Debugf("downloading new %s", role)
+	raw, err := c.remote.GetMeta(role, size)
+	if err != nil {
+		return nil, nil, err
+	}
+	genHash := sha256.Sum256(raw)
+	if !bytes.Equal(genHash[:], expectedSha256) {
+		return nil, nil, ErrChecksumMismatch{role: role}
+	}
+	s := &data.Signed{}
+	err = json.Unmarshal(raw, s)
+	if err != nil {
+		return nil, nil, err
+	}
+	return raw, s, nil
 }
 
 func (c Client) GetTargetsFile(role string, keyIDs []string, snapshotMeta data.Files, consistent bool, threshold int) (*data.Signed, error) {
@@ -437,23 +451,17 @@ func (c Client) GetTargetsFile(role string, keyIDs []string, snapshotMeta data.F
 		} else {
 			download = true
 		}
-
 	}
 
+	size := snapshotMeta[role].Length
 	var s *data.Signed
 	if download {
 		rolePath, err := c.RoleTargetsPath(role, hex.EncodeToString(expectedSha256), consistent)
 		if err != nil {
 			return nil, err
 		}
-		raw, err = c.remote.GetMeta(rolePath, snapshotMeta[role].Length)
+		raw, s, err = c.downloadSigned(rolePath, size, expectedSha256)
 		if err != nil {
-			return nil, err
-		}
-		s = &data.Signed{}
-		err = json.Unmarshal(raw, s)
-		if err != nil {
-			logrus.Error("Error unmarshalling targets file:", err)
 			return nil, err
 		}
 	} else {

@@ -13,38 +13,41 @@ clone git github.com/go-check/check 64131543e7896d5bcc6bd5a76287eb75ea96c673
 clone git github.com/gorilla/context 14f550f51a
 clone git github.com/gorilla/mux e444e69cbd
 clone git github.com/kr/pty 5cf931ef8f
-clone git github.com/mattn/go-sqlite3 b4142c444a8941d0d92b0b7103a24df9cd815e42
-clone git github.com/microsoft/hcsshim da093dac579302d7b413696b96dec0b5e1bce8d4
+clone git github.com/mattn/go-sqlite3 v1.1.0
+clone git github.com/microsoft/hcsshim 325e531f8c49dd78580d5fd197ddb972fa4610e7
 clone git github.com/mistifyio/go-zfs v2.1.1
 clone git github.com/tchap/go-patricia v2.1.0
 clone git golang.org/x/net 3cffabab72adf04f8e3b01c5baf775361837b5fe https://github.com/golang/net.git
-clone hg code.google.com/p/gosqlite 74691fb6f837
 
 #get libnetwork packages
-clone git github.com/docker/libnetwork 22dc04d06067b40a9e7ef575aee6d1bb69d4dcc3
+clone git github.com/docker/libnetwork dd1c5f0ffe7697f75a82bd8e4bbd6f225ec5e383
 clone git github.com/armon/go-metrics eb0af217e5e9747e41dd5303755356b62d28e3ec
 clone git github.com/hashicorp/go-msgpack 71c2886f5a673a35f909803f38ece5810165097b
 clone git github.com/hashicorp/memberlist 9a1e242e454d2443df330bdd51a436d5a9058fc4
 clone git github.com/hashicorp/serf 7151adcef72687bf95f451a2e0ba15cb19412bf2
-clone git github.com/docker/libkv 60c7c881345b3c67defc7f93a8297debf041d43c
-clone git github.com/vishvananda/netns 493029407eeb434d0c2d44e02ea072ff2488d322
+clone git github.com/docker/libkv 749af6c5b3fb755bec1738cc5e0d3a6f1574d730
+clone git github.com/vishvananda/netns 604eaf189ee867d8c147fafc28def2394e878d25
 clone git github.com/vishvananda/netlink 4b5dce31de6d42af5bb9811c6d265472199e0fec
 clone git github.com/BurntSushi/toml f706d00e3de6abe700c994cdd545a1a4915af060
 clone git github.com/samuel/go-zookeeper d0e0d8e11f318e000a8cc434616d69e329edc374
-clone git github.com/coreos/go-etcd v2.0.0
+clone git github.com/deckarep/golang-set ef32fa3046d9f249d399f98ebaf9be944430fd1d
+clone git github.com/coreos/etcd v2.2.0
+fix_rewritten_imports github.com/coreos/etcd
+clone git github.com/ugorji/go 5abd4e96a45c386928ed2ca2a7ef63e2533e18ec
 clone git github.com/hashicorp/consul v0.5.2
+clone git github.com/boltdb/bolt v1.0
 
 # get graph and distribution packages
-clone git github.com/docker/distribution 7dc8d4a26b689bd4892f2f2322dbce0b7119d686
-clone git github.com/vbatts/tar-split v0.9.4
+clone git github.com/docker/distribution 20c4b7a1805a52753dfd593ee1cc35558722a0ce # docker/1.9 branch
+clone git github.com/vbatts/tar-split v0.9.10
 
-clone git github.com/docker/notary 8e8122eb5528f621afcd4e2854c47302f17392f7
-clone git github.com/endophage/gotuf a592b03b28b02bb29bb5878308fb1abed63383b5
-clone git github.com/tent/canonical-json-go 96e4ba3a7613a1216cbd1badca4efe382adea337
+clone git github.com/docker/notary 089d8450d8928aa1c58fd03f09cabbde9bcb4590
+clone git github.com/endophage/gotuf 876c31a61bc4aa0dae09bb8ef3946dc26dd04924
+clone git github.com/jfrazelle/go 6e461eb70cb4187b41a84e9a567d7137bdbe0f16
 clone git github.com/agl/ed25519 d2b94fd789ea21d12fac1a4443dd3a3f79cda72c
 
-clone git github.com/opencontainers/runc v0.0.3 # libcontainer
-# libcontainer deps (see src/github.com/docker/libcontainer/update-vendor.sh)
+clone git github.com/opencontainers/runc 6c198ae2d065c37f44316e0de3df7f3b88950923 # libcontainer
+# libcontainer deps (see src/github.com/opencontainers/runc/Godeps/Godeps.json)
 clone git github.com/coreos/go-systemd v3
 clone git github.com/godbus/dbus v2
 clone git github.com/syndtr/gocapability 66ef2aa7a23ba682594e2b6f74cf40c0692b49fb
@@ -58,5 +61,9 @@ clone git github.com/tinylib/msgp 75ee40d2601edf122ef667e2a07d600d4c44490c
 
 # fsnotify
 clone git gopkg.in/fsnotify.v1 v1.2.0
+
+# awslogs deps
+clone git github.com/aws/aws-sdk-go v0.7.1
+clone git github.com/vaughan0/go-ini a98ad7ee00ec53921f08832bc06ecf7fd600e6a1
 
 clean

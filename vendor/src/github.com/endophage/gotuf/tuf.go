@@ -71,24 +71,46 @@ func NewTufRepo(keysDB *keys.KeyDB, cryptoService signed.CryptoService) *TufRepo
 }
 
 // AddBaseKeys is used to add keys to the role in root.json
-func (tr *TufRepo) AddBaseKeys(role string, keys ...*data.TUFKey) error {
+func (tr *TufRepo) AddBaseKeys(role string, keys ...data.PublicKey) error {
 	if tr.Root == nil {
 		return ErrNotLoaded{role: "root"}
 	}
+	ids := []string{}
 	for _, k := range keys {
 		// Store only the public portion
-		pubKey := *k
-		pubKey.Value.Private = nil
-		tr.Root.Signed.Keys[pubKey.ID()] = &pubKey
-		tr.keysDB.AddKey(&pubKey)
+		pubKey := data.NewPrivateKey(k.Algorithm(), k.Public(), nil)
+		tr.Root.Signed.Keys[pubKey.ID()] = pubKey
+		tr.keysDB.AddKey(k)
 		tr.Root.Signed.Roles[role].KeyIDs = append(tr.Root.Signed.Roles[role].KeyIDs, pubKey.ID())
+		ids = append(ids, pubKey.ID())
 	}
+	r, err := data.NewRole(
+		role,
+		tr.Root.Signed.Roles[role].Threshold,
+		ids,
+		nil,
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+	tr.keysDB.AddRole(r)
 	tr.Root.Dirty = true
 	return nil
 
 }
 
-// RemoveKeys is used to remove keys from the roles in root.json
+// ReplaceBaseKeys is used to replace all keys for the given role with the new keys
+func (tr *TufRepo) ReplaceBaseKeys(role string, keys ...data.PublicKey) error {
+	r := tr.keysDB.GetRole(role)
+	err := tr.RemoveBaseKeys(role, r.KeyIDs...)
+	if err != nil {
+		return err
+	}
+	return tr.AddBaseKeys(role, keys...)
+}
+
+// RemoveBaseKeys is used to remove keys from the roles in root.json
 func (tr *TufRepo) RemoveBaseKeys(role string, keyIDs ...string) error {
 	if tr.Root == nil {
 		return ErrNotLoaded{role: "root"}
@@ -119,7 +141,7 @@ func (tr *TufRepo) RemoveBaseKeys(role string, keyIDs ...string) error {
 	}
 
 	// remove keys no longer in use by any roles
-	for k, _ := range toDelete {
+	for k := range toDelete {
 		delete(tr.Root.Signed.Keys, k)
 	}
 	tr.Root.Dirty = true
@@ -258,16 +280,12 @@ func (tr *TufRepo) InitTimestamp() error {
 // SetRoot parses the Signed object into a SignedRoot object, sets
 // the keys and roles in the KeyDB, and sets the TufRepo.Root field
 // to the SignedRoot object.
-func (tr *TufRepo) SetRoot(s *data.Signed) error {
-	r, err := data.RootFromSigned(s)
-	if err != nil {
-		return err
-	}
-	for _, key := range r.Signed.Keys {
+func (tr *TufRepo) SetRoot(s *data.SignedRoot) error {
+	for _, key := range s.Signed.Keys {
 		logrus.Debug("Adding key ", key.ID())
 		tr.keysDB.AddKey(key)
 	}
-	for roleName, role := range r.Signed.Roles {
+	for roleName, role := range s.Signed.Roles {
 		logrus.Debugf("Adding role %s with keys %s", roleName, strings.Join(role.KeyIDs, ","))
 		baseRole, err := data.NewRole(
 			roleName,
@@ -284,48 +302,35 @@ func (tr *TufRepo) SetRoot(s *data.Signed) error {
 			return err
 		}
 	}
-	tr.Root = r
+	tr.Root = s
 	return nil
 }
 
 // SetTimestamp parses the Signed object into a SignedTimestamp object
 // and sets the TufRepo.Timestamp field.
-func (tr *TufRepo) SetTimestamp(s *data.Signed) error {
-	ts, err := data.TimestampFromSigned(s)
-	if err != nil {
-		return err
-	}
-	tr.Timestamp = ts
+func (tr *TufRepo) SetTimestamp(s *data.SignedTimestamp) error {
+	tr.Timestamp = s
 	return nil
 }
 
 // SetSnapshot parses the Signed object into a SignedSnapshots object
 // and sets the TufRepo.Snapshot field.
-func (tr *TufRepo) SetSnapshot(s *data.Signed) error {
-	snap, err := data.SnapshotFromSigned(s)
-	if err != nil {
-		return err
-	}
-
-	tr.Snapshot = snap
+func (tr *TufRepo) SetSnapshot(s *data.SignedSnapshot) error {
+	tr.Snapshot = s
 	return nil
 }
 
 // SetTargets parses the Signed object into a SignedTargets object,
 // reads the delegated roles and keys into the KeyDB, and sets the
 // SignedTargets object agaist the role in the TufRepo.Targets map.
-func (tr *TufRepo) SetTargets(role string, s *data.Signed) error {
-	t, err := data.TargetsFromSigned(s)
-	if err != nil {
-		return err
-	}
-	for _, k := range t.Signed.Delegations.Keys {
+func (tr *TufRepo) SetTargets(role string, s *data.SignedTargets) error {
+	for _, k := range s.Signed.Delegations.Keys {
 		tr.keysDB.AddKey(k)
 	}
-	for _, r := range t.Signed.Delegations.Roles {
+	for _, r := range s.Signed.Delegations.Roles {
 		tr.keysDB.AddRole(r)
 	}
-	tr.Targets[role] = t
+	tr.Targets[role] = s
 	return nil
 }
 

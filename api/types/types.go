@@ -6,6 +6,7 @@ import (
 
 	"github.com/docker/docker/daemon/network"
 	"github.com/docker/docker/pkg/version"
+	"github.com/docker/docker/registry"
 	"github.com/docker/docker/runconfig"
 )
 
@@ -95,6 +96,7 @@ type GraphDriverData struct {
 // GET "/images/{name:.*}/json"
 type ImageInspect struct {
 	ID              string `json:"Id"`
+	Tags            []string
 	Parent          string
 	Comment         string
 	Created         string
@@ -125,6 +127,7 @@ type Container struct {
 	ID         string `json:"Id"`
 	Names      []string
 	Image      string
+	ImageID    string
 	Command    string
 	Created    int64
 	Ports      []Port
@@ -201,7 +204,7 @@ type Info struct {
 	KernelVersion      string
 	OperatingSystem    string
 	IndexServerAddress string
-	RegistryConfig     interface{}
+	RegistryConfig     *registry.ServiceConfig
 	InitSha1           string
 	InitPath           string
 	NCPU               int
@@ -213,6 +216,8 @@ type Info struct {
 	Name               string
 	Labels             []string
 	ExperimentalBuild  bool
+	ServerVersion      string
+	ClusterStore       string
 }
 
 // ExecStartCheck is a temp struct used by execStart
@@ -227,6 +232,7 @@ type ExecStartCheck struct {
 // ContainerState stores container's running state
 // it's part of ContainerJSONBase and will return by "inspect" command
 type ContainerState struct {
+	Status     string
 	Running    bool
 	Paused     bool
 	Restarting bool
@@ -263,6 +269,8 @@ type ContainerJSONBase struct {
 	ExecIDs         []string
 	HostConfig      *runconfig.HostConfig
 	GraphDriver     GraphDriverData
+	SizeRw          *int64 `json:",omitempty"`
+	SizeRootFs      *int64 `json:",omitempty"`
 }
 
 // ContainerJSON is newly used struct along with MountPoint
@@ -270,26 +278,6 @@ type ContainerJSON struct {
 	*ContainerJSONBase
 	Mounts []MountPoint
 	Config *runconfig.Config
-}
-
-// ContainerJSONPre120 is a backcompatibility struct along with ContainerConfig.
-// Note this is not used by the Windows daemon.
-type ContainerJSONPre120 struct {
-	*ContainerJSONBase
-	Volumes   map[string]string
-	VolumesRW map[string]bool
-	Config    *ContainerConfig
-}
-
-// ContainerConfig is a backcompatibility struct used in ContainerJSONPre120
-type ContainerConfig struct {
-	*runconfig.Config
-
-	// backward compatibility, they now live in HostConfig
-	Memory     int64
-	MemorySwap int64
-	CPUShares  int64  `json:"CpuShares"`
-	CPUSet     string `json:"CpuSet"`
 }
 
 // MountPoint represents a mount point configuration inside the container.
@@ -300,4 +288,67 @@ type MountPoint struct {
 	Driver      string `json:",omitempty"`
 	Mode        string
 	RW          bool
+}
+
+// Volume represents the configuration of a volume for the remote API
+type Volume struct {
+	Name       string // Name is the name of the volume
+	Driver     string // Driver is the Driver name used to create the volume
+	Mountpoint string // Mountpoint is the location on disk of the volume
+}
+
+// VolumesListResponse contains the response for the remote API:
+// GET "/volumes"
+type VolumesListResponse struct {
+	Volumes []*Volume // Volumes is the list of volumes being returned
+}
+
+// VolumeCreateRequest contains the response for the remote API:
+// POST "/volumes"
+type VolumeCreateRequest struct {
+	Name       string            // Name is the requested name of the volume
+	Driver     string            // Driver is the name of the driver that should be used to create the volume
+	DriverOpts map[string]string // DriverOpts holds the driver specific options to use for when creating the volume.
+}
+
+// NetworkResource is the body of the "get network" http response message
+type NetworkResource struct {
+	Name       string                      `json:"name"`
+	ID         string                      `json:"id"`
+	Scope      string                      `json:"scope"`
+	Driver     string                      `json:"driver"`
+	IPAM       network.IPAM                `json:"ipam"`
+	Containers map[string]EndpointResource `json:"containers"`
+}
+
+//EndpointResource contains network resources allocated and usd for a container in a network
+type EndpointResource struct {
+	EndpointID  string `json:"endpoint"`
+	MacAddress  string `json:"mac_address"`
+	IPv4Address string `json:"ipv4_address"`
+	IPv6Address string `json:"ipv6_address"`
+}
+
+// NetworkCreate is the expected body of the "create network" http request message
+type NetworkCreate struct {
+	Name           string       `json:"name"`
+	CheckDuplicate bool         `json:"check_duplicate"`
+	Driver         string       `json:"driver"`
+	IPAM           network.IPAM `json:"ipam"`
+}
+
+// NetworkCreateResponse is the response message sent by the server for network create call
+type NetworkCreateResponse struct {
+	ID      string `json:"id"`
+	Warning string `json:"warning"`
+}
+
+// NetworkConnect represents the data to be used to connect a container to the network
+type NetworkConnect struct {
+	Container string `json:"container"`
+}
+
+// NetworkDisconnect represents the data to be used to disconnect a container from the network
+type NetworkDisconnect struct {
+	Container string `json:"container"`
 }

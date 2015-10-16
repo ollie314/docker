@@ -1,24 +1,26 @@
 package daemon
 
 import (
-	"fmt"
 	"runtime"
 
+	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/runconfig"
+	"github.com/docker/docker/utils"
 )
 
+// ContainerStart starts a container.
 func (daemon *Daemon) ContainerStart(name string, hostConfig *runconfig.HostConfig) error {
 	container, err := daemon.Get(name)
 	if err != nil {
 		return err
 	}
 
-	if container.IsPaused() {
-		return fmt.Errorf("Cannot start a paused container, try unpause instead.")
+	if container.isPaused() {
+		return derr.ErrorCodeStartPaused
 	}
 
 	if container.IsRunning() {
-		return fmt.Errorf("Container already started")
+		return derr.ErrorCodeAlreadyStarted
 	}
 
 	// Windows does not have the backwards compatibility issue here.
@@ -32,7 +34,7 @@ func (daemon *Daemon) ContainerStart(name string, hostConfig *runconfig.HostConf
 		}
 	} else {
 		if hostConfig != nil {
-			return fmt.Errorf("Supplying a hostconfig on start is not supported. It should be supplied on create")
+			return derr.ErrorCodeHostConfigStart
 		}
 	}
 
@@ -43,7 +45,7 @@ func (daemon *Daemon) ContainerStart(name string, hostConfig *runconfig.HostConf
 	}
 
 	if err := container.Start(); err != nil {
-		return fmt.Errorf("Cannot start container %s: %s", name, err)
+		return derr.ErrorCodeCantStart.WithArgs(name, utils.GetErrorMessage(err))
 	}
 
 	return nil
