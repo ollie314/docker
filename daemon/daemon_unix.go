@@ -245,7 +245,7 @@ func checkConfigOptions(config *Config) error {
 		return fmt.Errorf("You specified -b & --bip, mutually exclusive options. Please specify only one.")
 	}
 	if !config.Bridge.EnableIPTables && !config.Bridge.InterContainerCommunication {
-		return fmt.Errorf("You specified --iptables=false with --icc=false. ICC uses iptables to function. Please set --icc or --iptables to true.")
+		return fmt.Errorf("You specified --iptables=false with --icc=false. ICC=false uses iptables to function. Please set --icc or --iptables to true.")
 	}
 	if !config.Bridge.EnableIPTables && config.Bridge.EnableIPMasq {
 		config.Bridge.EnableIPMasq = false
@@ -340,6 +340,9 @@ func (daemon *Daemon) networkOptions(dconfig *Config) ([]nwconfig.Option, error)
 		}
 		options = append(options, nwconfig.OptionKVProvider(kv[0]))
 		options = append(options, nwconfig.OptionKVProviderURL(strings.Join(kv[1:], "://")))
+	}
+	if len(dconfig.ClusterOpts) > 0 {
+		options = append(options, nwconfig.OptionKVOpts(dconfig.ClusterOpts))
 	}
 
 	if daemon.discoveryWatcher != nil {

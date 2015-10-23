@@ -662,7 +662,7 @@ This endpoint returns a live stream of a container's resource usage statistics.
 
       {
          "read" : "2015-01-08T22:57:31.547920715Z",
-         "network": {
+         "networks": {
                  "eth0": {
                      "rx_bytes": 5338,
                      "rx_dropped": 0,
@@ -1547,7 +1547,10 @@ Return low-level information on the image `name`
           "Name" : "aufs",
           "Data" : null
        },
-       "Tags" : [
+       "RepoDigests" : [
+          "localhost:5000/test/busybox/example@sha256:cbbf2f9a99b47fc460d422812b6a5adff7dfee951d8fa2e4a98caa0382cfbdbf"
+       ],
+       "RepoTags" : [
           "example:1.0",
           "example:latest",
           "example:stable"
@@ -2425,13 +2428,13 @@ Status Codes:
 
 ### Create a volume
 
-`POST /volumes`
+`POST /volumes/create`
 
 Create a volume
 
 **Example request**:
 
-  POST /volumes HTTP/1.1
+  POST /volumes/create HTTP/1.1
   Content-Type: application/json
 
   {
