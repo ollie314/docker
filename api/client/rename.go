@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"golang.org/x/net/context"
+
 	Cli "github.com/docker/docker/cli"
 	flag "github.com/docker/docker/pkg/mflag"
 )
@@ -24,7 +26,7 @@ func (cli *DockerCli) CmdRename(args ...string) error {
 		return fmt.Errorf("Error: Neither old nor new names may be empty")
 	}
 
-	if _, _, err := readBody(cli.call("POST", fmt.Sprintf("/containers/%s/rename?name=%s", oldName, newName), nil, nil)); err != nil {
+	if err := cli.client.ContainerRename(context.Background(), oldName, newName); err != nil {
 		fmt.Fprintf(cli.err, "%s\n", err)
 		return fmt.Errorf("Error: failed to rename container named %s", oldName)
 	}

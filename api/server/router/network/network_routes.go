@@ -2,17 +2,14 @@ package network
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"golang.org/x/net/context"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/server/httputils"
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/daemon"
-	"github.com/docker/docker/daemon/network"
-	"github.com/docker/docker/pkg/parsers/filters"
+	"github.com/docker/engine-api/types"
+	"github.com/docker/engine-api/types/filters"
+	"github.com/docker/engine-api/types/network"
 	"github.com/docker/libnetwork"
 )
 
@@ -28,32 +25,16 @@ func (n *networkRouter) getNetworksList(ctx context.Context, w http.ResponseWrit
 	}
 
 	list := []*types.NetworkResource{}
-	var nameFilter, idFilter bool
-	var names, ids []string
-	if names, nameFilter = netFilters["name"]; nameFilter {
-		for _, name := range names {
-			if nw, err := n.daemon.GetNetwork(name, daemon.NetworkByName); err == nil {
-				list = append(list, buildNetworkResource(nw))
-			} else {
-				logrus.Errorf("failed to get network for filter=%s : %v", name, err)
-			}
-		}
+
+	nwList, err := n.backend.FilterNetworks(netFilters)
+	if err != nil {
+		return err
 	}
 
-	if ids, idFilter = netFilters["id"]; idFilter {
-		for _, id := range ids {
-			for _, nw := range n.daemon.GetNetworksByID(id) {
-				list = append(list, buildNetworkResource(nw))
-			}
-		}
+	for _, nw := range nwList {
+		list = append(list, buildNetworkResource(nw))
 	}
 
-	if !nameFilter && !idFilter {
-		nwList := n.daemon.GetNetworksByID("")
-		for _, nw := range nwList {
-			list = append(list, buildNetworkResource(nw))
-		}
-	}
 	return httputils.WriteJSON(w, http.StatusOK, list)
 }
 
@@ -62,7 +43,7 @@ func (n *networkRouter) getNetwork(ctx context.Context, w http.ResponseWriter, r
 		return err
 	}
 
-	nw, err := n.daemon.FindNetwork(vars["id"])
+	nw, err := n.backend.FindNetwork(vars["id"])
 	if err != nil {
 		return err
 	}
@@ -70,8 +51,7 @@ func (n *networkRouter) getNetwork(ctx context.Context, w http.ResponseWriter, r
 }
 
 func (n *networkRouter) postNetworkCreate(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
-	var create types.NetworkCreate
-	var warning string
+	var create types.NetworkCreateRequest
 
 	if err := httputils.ParseForm(r); err != nil {
 		return err
@@ -85,26 +65,12 @@ func (n *networkRouter) postNetworkCreate(ctx context.Context, w http.ResponseWr
 		return err
 	}
 
-	nw, err := n.daemon.GetNetwork(create.Name, daemon.NetworkByName)
-	if _, ok := err.(libnetwork.ErrNoSuchNetwork); err != nil && !ok {
-		return err
-	}
-	if nw != nil {
-		if create.CheckDuplicate {
-			return libnetwork.NetworkNameError(create.Name)
-		}
-		warning = fmt.Sprintf("Network with name %s (id : %s) already exists", nw.Name(), nw.ID())
-	}
-
-	nw, err = n.daemon.CreateNetwork(create.Name, create.Driver, create.IPAM, create.Options)
+	nw, err := n.backend.CreateNetwork(create)
 	if err != nil {
 		return err
 	}
 
-	return httputils.WriteJSON(w, http.StatusCreated, &types.NetworkCreateResponse{
-		ID:      nw.ID(),
-		Warning: warning,
-	})
+	return httputils.WriteJSON(w, http.StatusCreated, nw)
 }
 
 func (n *networkRouter) postNetworkConnect(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
@@ -121,12 +87,12 @@ func (n *networkRouter) postNetworkConnect(ctx context.Context, w http.ResponseW
 		return err
 	}
 
-	nw, err := n.daemon.FindNetwork(vars["id"])
+	nw, err := n.backend.FindNetwork(vars["id"])
 	if err != nil {
 		return err
 	}
 
-	return n.daemon.ConnectContainerToNetwork(connect.Container, nw.Name())
+	return n.backend.ConnectContainerToNetwork(connect.Container, nw.Name(), connect.EndpointConfig)
 }
 
 func (n *networkRouter) postNetworkDisconnect(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
@@ -143,25 +109,23 @@ func (n *networkRouter) postNetworkDisconnect(ctx context.Context, w http.Respon
 		return err
 	}
 
-	nw, err := n.daemon.FindNetwork(vars["id"])
+	nw, err := n.backend.FindNetwork(vars["id"])
 	if err != nil {
 		return err
 	}
 
-	return n.daemon.DisconnectContainerFromNetwork(disconnect.Container, nw)
+	return n.backend.DisconnectContainerFromNetwork(disconnect.Container, nw, disconnect.Force)
 }
 
 func (n *networkRouter) deleteNetwork(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
 	if err := httputils.ParseForm(r); err != nil {
 		return err
 	}
-
-	nw, err := n.daemon.FindNetwork(vars["id"])
-	if err != nil {
+	if err := n.backend.DeleteNetwork(vars["id"]); err != nil {
 		return err
 	}
-
-	return nw.Delete()
+	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 func buildNetworkResource(nw libnetwork.Network) *types.NetworkResource {
@@ -170,33 +134,50 @@ func buildNetworkResource(nw libnetwork.Network) *types.NetworkResource {
 		return r
 	}
 
+	info := nw.Info()
 	r.Name = nw.Name()
 	r.ID = nw.ID()
-	r.Scope = nw.Info().Scope()
+	r.Scope = info.Scope()
 	r.Driver = nw.Type()
-	r.Options = nw.Info().DriverOptions()
+	r.EnableIPv6 = info.IPv6Enabled()
+	r.Internal = info.Internal()
+	r.Options = info.DriverOptions()
 	r.Containers = make(map[string]types.EndpointResource)
-	buildIpamResources(r, nw)
+	buildIpamResources(r, info)
+	r.Internal = info.Internal()
+	r.Labels = info.Labels()
 
 	epl := nw.Endpoints()
 	for _, e := range epl {
-		sb := e.Info().Sandbox()
-		if sb == nil {
+		ei := e.Info()
+		if ei == nil {
 			continue
 		}
+		sb := ei.Sandbox()
+		key := "ep-" + e.ID()
+		if sb != nil {
+			key = sb.ContainerID()
+		}
 
-		r.Containers[sb.ContainerID()] = buildEndpointResource(e)
+		r.Containers[key] = buildEndpointResource(e)
 	}
 	return r
 }
 
-func buildIpamResources(r *types.NetworkResource, nw libnetwork.Network) {
-	id, ipv4conf, ipv6conf := nw.Info().IpamConfig()
+func buildIpamResources(r *types.NetworkResource, nwInfo libnetwork.NetworkInfo) {
+	id, opts, ipv4conf, ipv6conf := nwInfo.IpamConfig()
+
+	ipv4Info, ipv6Info := nwInfo.IpamInfo()
 
 	r.IPAM.Driver = id
 
+	r.IPAM.Options = opts
+
 	r.IPAM.Config = []network.IPAMConfig{}
 	for _, ip4 := range ipv4conf {
+		if ip4.PreferredPool == "" {
+			continue
+		}
 		iData := network.IPAMConfig{}
 		iData.Subnet = ip4.PreferredPool
 		iData.IPRange = ip4.SubPool
@@ -205,13 +186,36 @@ func buildIpamResources(r *types.NetworkResource, nw libnetwork.Network) {
 		r.IPAM.Config = append(r.IPAM.Config, iData)
 	}
 
+	if len(r.IPAM.Config) == 0 {
+		for _, ip4Info := range ipv4Info {
+			iData := network.IPAMConfig{}
+			iData.Subnet = ip4Info.IPAMData.Pool.String()
+			iData.Gateway = ip4Info.IPAMData.Gateway.String()
+			r.IPAM.Config = append(r.IPAM.Config, iData)
+		}
+	}
+
+	hasIpv6Conf := false
 	for _, ip6 := range ipv6conf {
+		if ip6.PreferredPool == "" {
+			continue
+		}
+		hasIpv6Conf = true
 		iData := network.IPAMConfig{}
 		iData.Subnet = ip6.PreferredPool
 		iData.IPRange = ip6.SubPool
 		iData.Gateway = ip6.Gateway
 		iData.AuxAddress = ip6.AuxAddresses
 		r.IPAM.Config = append(r.IPAM.Config, iData)
+	}
+
+	if !hasIpv6Conf {
+		for _, ip6Info := range ipv6Info {
+			iData := network.IPAMConfig{}
+			iData.Subnet = ip6Info.IPAMData.Pool.String()
+			iData.Gateway = ip6Info.IPAMData.Gateway.String()
+			r.IPAM.Config = append(r.IPAM.Config, iData)
+		}
 	}
 }
 
@@ -222,7 +226,13 @@ func buildEndpointResource(e libnetwork.Endpoint) types.EndpointResource {
 	}
 
 	er.EndpointID = e.ID()
-	if iface := e.Info().Iface(); iface != nil {
+	er.Name = e.Name()
+	ei := e.Info()
+	if ei == nil {
+		return er
+	}
+
+	if iface := ei.Iface(); iface != nil {
 		if mac := iface.MacAddress(); mac != nil {
 			er.MacAddress = mac.String()
 		}

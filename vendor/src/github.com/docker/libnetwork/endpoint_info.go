@@ -25,6 +25,10 @@ type EndpointInfo interface {
 	// This will only return a valid value if a container has joined the endpoint.
 	GatewayIPv6() net.IP
 
+	// StaticRoutes returns the list of static routes configured by the network
+	// driver when the container joins a network
+	StaticRoutes() []*types.StaticRoute
+
 	// Sandbox returns the attached sandbox if there, nil otherwise.
 	Sandbox() Sandbox
 }
@@ -136,9 +140,10 @@ func (epi *endpointInterface) CopyTo(dstEpi *endpointInterface) error {
 }
 
 type endpointJoinInfo struct {
-	gw           net.IP
-	gw6          net.IP
-	StaticRoutes []*types.StaticRoute
+	gw                    net.IP
+	gw6                   net.IP
+	StaticRoutes          []*types.StaticRoute
+	disableGatewayService bool
 }
 
 func (ep *endpoint) Info() EndpointInfo {
@@ -159,16 +164,31 @@ func (ep *endpoint) Info() EndpointInfo {
 		return ep
 	}
 
-	return sb.getEndpoint(ep.ID())
+	if epi := sb.getEndpoint(ep.ID()); epi != nil {
+		return epi
+	}
+
+	return nil
 }
 
 func (ep *endpoint) DriverInfo() (map[string]interface{}, error) {
+	ep, err := ep.retrieveFromStore()
+	if err != nil {
+		return nil, err
+	}
+
+	if sb, ok := ep.getSandbox(); ok {
+		if gwep := sb.getEndpointInGWNetwork(); gwep != nil && gwep.ID() != ep.ID() {
+			return gwep.DriverInfo()
+		}
+	}
+
 	n, err := ep.getNetworkFromStore()
 	if err != nil {
 		return nil, fmt.Errorf("could not find network in store for driver info: %v", err)
 	}
 
-	driver, err := n.driver()
+	driver, err := n.driver(true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get driver info: %v", err)
 	}
@@ -280,6 +300,17 @@ func (ep *endpoint) Sandbox() Sandbox {
 	return cnt
 }
 
+func (ep *endpoint) StaticRoutes() []*types.StaticRoute {
+	ep.Lock()
+	defer ep.Unlock()
+
+	if ep.joinInfo == nil {
+		return nil
+	}
+
+	return ep.joinInfo.StaticRoutes
+}
+
 func (ep *endpoint) Gateway() net.IP {
 	ep.Lock()
 	defer ep.Unlock()
@@ -316,4 +347,19 @@ func (ep *endpoint) SetGatewayIPv6(gw6 net.IP) error {
 
 	ep.joinInfo.gw6 = types.GetIPCopy(gw6)
 	return nil
+}
+
+func (ep *endpoint) retrieveFromStore() (*endpoint, error) {
+	n, err := ep.getNetworkFromStore()
+	if err != nil {
+		return nil, fmt.Errorf("could not find network in store to get latest endpoint %s: %v", ep.Name(), err)
+	}
+	return n.getEndpointFromStore(ep.ID())
+}
+
+func (ep *endpoint) DisableGatewayService() {
+	ep.Lock()
+	defer ep.Unlock()
+
+	ep.joinInfo.disableGatewayService = true
 }

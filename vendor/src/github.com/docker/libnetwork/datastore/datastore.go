@@ -13,6 +13,7 @@ import (
 	"github.com/docker/libkv/store/consul"
 	"github.com/docker/libkv/store/etcd"
 	"github.com/docker/libkv/store/zookeeper"
+	"github.com/docker/libnetwork/discoverapi"
 	"github.com/docker/libnetwork/types"
 )
 
@@ -30,7 +31,7 @@ type DataStore interface {
 	DeleteObjectAtomic(kvObject KVObject) error
 	// DeleteTree deletes a record
 	DeleteTree(kvObject KVObject) error
-	// Watchable returns whether the store is watchable are not
+	// Watchable returns whether the store is watchable or not
 	Watchable() bool
 	// Watch for changes on a KVObject
 	Watch(kvObject KVObject, stopCh <-chan struct{}) (<-chan KVObject, error)
@@ -133,7 +134,7 @@ func makeDefaultScopes() map[string]*ScopeCfg {
 	def := make(map[string]*ScopeCfg)
 	def[LocalScope] = &ScopeCfg{
 		Client: ScopeClientCfg{
-			Provider: "boltdb",
+			Provider: string(store.BOLTDB),
 			Address:  defaultPrefix + "/local-kv.db",
 			Config: &store.Config{
 				Bucket: "libnetwork",
@@ -144,7 +145,8 @@ func makeDefaultScopes() map[string]*ScopeCfg {
 	return def
 }
 
-var rootChain = []string{"docker", "network", "v1.0"}
+var defaultRootChain = []string{"docker", "network", "v1.0"}
+var rootChain = defaultRootChain
 
 func init() {
 	consul.Register()
@@ -195,6 +197,7 @@ func ParseKey(key string) ([]string, error) {
 
 // newClient used to connect to KV Store
 func newClient(scope string, kv string, addr string, config *store.Config, cached bool) (DataStore, error) {
+
 	if cached && scope != LocalScope {
 		return nil, fmt.Errorf("caching supported only for scope %s", LocalScope)
 	}
@@ -203,7 +206,21 @@ func newClient(scope string, kv string, addr string, config *store.Config, cache
 		config = &store.Config{}
 	}
 
-	addrs := strings.Split(addr, ",")
+	var addrs []string
+
+	if kv == string(store.BOLTDB) {
+		// Parse file path
+		addrs = strings.Split(addr, ",")
+	} else {
+		// Parse URI
+		parts := strings.SplitN(addr, "/", 2)
+		addrs = strings.Split(parts[0], ",")
+
+		// Add the custom prefix to the root chain
+		if len(parts) == 2 {
+			rootChain = append([]string{parts[1]}, defaultRootChain...)
+		}
+	}
 
 	store, err := libkv.NewStore(store.Backend(kv), addrs, config)
 	if err != nil {
@@ -235,6 +252,34 @@ func NewDataStore(scope string, cfg *ScopeCfg) (DataStore, error) {
 	}
 
 	return newClient(scope, cfg.Client.Provider, cfg.Client.Address, cfg.Client.Config, cached)
+}
+
+// NewDataStoreFromConfig creates a new instance of LibKV data store starting from the datastore config data
+func NewDataStoreFromConfig(dsc discoverapi.DatastoreConfigData) (DataStore, error) {
+	var (
+		ok    bool
+		sCfgP *store.Config
+	)
+
+	sCfgP, ok = dsc.Config.(*store.Config)
+	if !ok && dsc.Config != nil {
+		return nil, fmt.Errorf("cannot parse store configuration: %v", dsc.Config)
+	}
+
+	scopeCfg := &ScopeCfg{
+		Client: ScopeClientCfg{
+			Address:  dsc.Address,
+			Provider: dsc.Provider,
+			Config:   sCfgP,
+		},
+	}
+
+	ds, err := NewDataStore(dsc.Scope, scopeCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to construct datastore client from datastore configuration %v: %v", dsc, err)
+	}
+
+	return ds, err
 }
 
 func (ds *datastore) Close() {

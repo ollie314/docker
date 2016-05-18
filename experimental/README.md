@@ -1,4 +1,4 @@
-# Docker Experimental Features 
+# Docker Experimental Features
 
 This page contains a list of features in the Docker engine which are
 experimental. Experimental features are **not** ready for production. They are
@@ -72,7 +72,8 @@ to build a Docker binary with the experimental features enabled:
 ## Current experimental features
 
  * [External graphdriver plugins](plugins_graphdriver.md)
- * [User namespaces](userns.md)
+ * [Macvlan and Ipvlan Network Drivers](vlan-networks.md)
+ * The user namespaces feature has graduated from experimental.
 
 ## How to comment on an experimental feature
 
