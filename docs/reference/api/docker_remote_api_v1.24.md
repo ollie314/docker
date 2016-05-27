@@ -470,6 +470,7 @@ Query Parameters:
 Status Codes:
 
 -   **201** – no error
+-   **400** – bad parameter
 -   **404** – no such container
 -   **406** – impossible to attach (container not running)
 -   **500** – server error
@@ -1627,6 +1628,8 @@ Query Parameters:
 -   **filters** – a JSON encoded value of the filters (a map[string][]string) to process on the images list. Available filters:
   -   `dangling=true`
   -   `label=key` or `label="key=value"` of an image label
+  -   `before`=(`<image-name>[:<tag>]`,  `<image id>` or `<image@digest>`)
+  -   `since`=(`<image-name>[:<tag>]`,  `<image id>` or `<image@digest>`)
 -   **filter** - only return images with the specified name
 
 ### Build image from a Dockerfile
@@ -2132,6 +2135,10 @@ Search for an image on [Docker Hub](https://hub.docker.com).
 Query Parameters:
 
 -   **term** – term to search
+-   **filters** – a JSON encoded value of the filters (a map[string][]string) to process on the images list. Available filters:
+  -   `stars=<number>`
+  -   `is-automated=(true|false)`
+  -   `is-official=(true|false)`
 
 Status Codes:
 
@@ -2415,6 +2422,10 @@ Docker networks report the following events:
 
     create, connect, disconnect, destroy
 
+Docker daemon report the following event:
+
+    reload
+
 **Example request**:
 
     GET /events?since=1374067924
@@ -2584,9 +2595,10 @@ Query Parameters:
   -   `event=<string>`; -- event to filter
   -   `image=<string>`; -- image to filter
   -   `label=<string>`; -- image and container label to filter
-  -   `type=<string>`; -- either `container` or `image` or `volume` or `network`
+  -   `type=<string>`; -- either `container` or `image` or `volume` or `network` or `daemon`
   -   `volume=<string>`; -- volume to filter
   -   `network=<string>`; -- network to filter
+  -   `daemon=<string>`; -- daemon name or id to filter
 
 Status Codes:
 
