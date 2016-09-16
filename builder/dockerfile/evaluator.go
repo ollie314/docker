@@ -58,22 +58,24 @@ var evaluateTable map[string]func(*Builder, []string, map[string]bool, string) e
 
 func init() {
 	evaluateTable = map[string]func(*Builder, []string, map[string]bool, string) error{
-		command.Env:        env,
-		command.Label:      label,
-		command.Maintainer: maintainer,
-		command.Add:        add,
-		command.Copy:       dispatchCopy, // copy() is a go builtin
-		command.From:       from,
-		command.Onbuild:    onbuild,
-		command.Workdir:    workdir,
-		command.Run:        run,
-		command.Cmd:        cmd,
-		command.Entrypoint: entrypoint,
-		command.Expose:     expose,
-		command.Volume:     volume,
-		command.User:       user,
-		command.StopSignal: stopSignal,
-		command.Arg:        arg,
+		command.Add:         add,
+		command.Arg:         arg,
+		command.Cmd:         cmd,
+		command.Copy:        dispatchCopy, // copy() is a go builtin
+		command.Entrypoint:  entrypoint,
+		command.Env:         env,
+		command.Expose:      expose,
+		command.From:        from,
+		command.Healthcheck: healthcheck,
+		command.Label:       label,
+		command.Maintainer:  maintainer,
+		command.Onbuild:     onbuild,
+		command.Run:         run,
+		command.Shell:       shell,
+		command.StopSignal:  stopSignal,
+		command.User:        user,
+		command.Volume:      volume,
+		command.Workdir:     workdir,
 	}
 }
 
@@ -91,7 +93,7 @@ func init() {
 // such as `RUN` in ONBUILD RUN foo. There is special case logic in here to
 // deal with that, at least until it becomes more of a general concern with new
 // features.
-func (b *Builder) dispatch(stepN int, ast *parser.Node) error {
+func (b *Builder) dispatch(stepN int, stepTotal int, ast *parser.Node) error {
 	cmd := ast.Value
 	upperCasedCmd := strings.ToUpper(cmd)
 
@@ -105,7 +107,7 @@ func (b *Builder) dispatch(stepN int, ast *parser.Node) error {
 	original := ast.Original
 	flags := ast.Flags
 	strList := []string{}
-	msg := fmt.Sprintf("Step %d : %s", stepN+1, upperCasedCmd)
+	msg := fmt.Sprintf("Step %d/%d : %s", stepN+1, stepTotal, upperCasedCmd)
 
 	if len(ast.Flags) > 0 {
 		msg += " " + strings.Join(ast.Flags, " ")

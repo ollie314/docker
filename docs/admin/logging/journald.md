@@ -1,12 +1,11 @@
 <!--[metadata]>
 +++
 aliases = ["/engine/reference/logging/journald/"]
-title = "journald logging driver"
+title = "Journald logging driver"
 description = "Describes how to use the fluentd logging driver."
-keywords = ["Fluentd, docker, logging, driver"]
+keywords = ["Journald, docker, logging, driver"]
 [menu.main]
 parent = "smn_logging"
-weight = 2
 +++
 <![end-metadata]-->
 
@@ -31,7 +30,7 @@ driver stores the following metadata in the journal with each message:
 You can configure the default logging driver by passing the
 `--log-driver` option to the Docker daemon:
 
-    docker daemon --log-driver=journald
+    dockerd --log-driver=journald
 
 You can set the logging driver for a specific container by using the
 `--log-driver` option to `docker run`:

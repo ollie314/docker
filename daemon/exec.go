@@ -9,15 +9,21 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/exec"
 	"github.com/docker/docker/errors"
 	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/docker/pkg/pools"
+	"github.com/docker/docker/pkg/signal"
+	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/pkg/term"
-	"github.com/docker/engine-api/types"
-	"github.com/docker/engine-api/types/strslice"
+	"github.com/docker/docker/utils"
 )
+
+// Seconds to wait after sending TERM before trying KILL
+const termProcessTimeout = 10
 
 func (d *Daemon) registerExecCommand(container *container.Container, config *exec.Config) {
 	// Storing execs in container in order to kill them gracefully whenever the container is stopped or removed.
@@ -117,6 +123,13 @@ func (d *Daemon) ContainerExecCreate(name string, config *types.ExecConfig) (str
 	execConfig.Tty = config.Tty
 	execConfig.Privileged = config.Privileged
 	execConfig.User = config.User
+	execConfig.Env = []string{
+		"PATH=" + system.DefaultPathEnv,
+	}
+	if config.Tty {
+		execConfig.Env = append(execConfig.Env, "TERM=xterm")
+	}
+	execConfig.Env = utils.ReplaceOrAppendEnvValues(execConfig.Env, container.Config.Env)
 	if len(execConfig.User) == 0 {
 		execConfig.User = container.Config.User
 	}
@@ -130,7 +143,8 @@ func (d *Daemon) ContainerExecCreate(name string, config *types.ExecConfig) (str
 
 // ContainerExecStart starts a previously set up exec instance. The
 // std streams are set up.
-func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.Writer, stderr io.Writer) (err error) {
+// If ctx is cancelled, the process is terminated.
+func (d *Daemon) ContainerExecStart(ctx context.Context, name string, stdin io.ReadCloser, stdout io.Writer, stderr io.Writer) (err error) {
 	var (
 		cStdin           io.ReadCloser
 		cStdout, cStderr io.Writer
@@ -170,7 +184,7 @@ func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.
 		r, w := io.Pipe()
 		go func() {
 			defer w.Close()
-			defer logrus.Debugf("Closing buffered stdin pipe")
+			defer logrus.Debug("Closing buffered stdin pipe")
 			pools.Copy(w, stdin)
 		}()
 		cStdin = r
@@ -190,22 +204,39 @@ func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.
 
 	p := libcontainerd.Process{
 		Args:     append([]string{ec.Entrypoint}, ec.Args...),
+		Env:      ec.Env,
 		Terminal: ec.Tty,
 	}
 
 	if err := execSetPlatformOpt(c, ec, &p); err != nil {
-		return nil
-	}
-
-	attachErr := container.AttachStreams(context.Background(), ec.StreamConfig, ec.OpenStdin, true, ec.Tty, cStdin, cStdout, cStderr, ec.DetachKeys)
-
-	if err := d.containerd.AddProcess(c.ID, name, p); err != nil {
 		return err
 	}
 
-	err = <-attachErr
-	if err != nil {
-		return fmt.Errorf("attach failed with error: %v", err)
+	attachErr := container.AttachStreams(ctx, ec.StreamConfig, ec.OpenStdin, true, ec.Tty, cStdin, cStdout, cStderr, ec.DetachKeys)
+
+	if err := d.containerd.AddProcess(ctx, c.ID, name, p); err != nil {
+		return err
+	}
+
+	select {
+	case <-ctx.Done():
+		logrus.Debugf("Sending TERM signal to process %v in container %v", name, c.ID)
+		d.containerd.SignalProcess(c.ID, name, int(signal.SignalMap["TERM"]))
+		select {
+		case <-time.After(termProcessTimeout * time.Second):
+			logrus.Infof("Container %v, process %v failed to exit within %d seconds of signal TERM - using the force", c.ID, name, termProcessTimeout)
+			d.containerd.SignalProcess(c.ID, name, int(signal.SignalMap["KILL"]))
+		case <-attachErr:
+			// TERM signal worked
+		}
+		return fmt.Errorf("context cancelled")
+	case err := <-attachErr:
+		if err != nil {
+			if _, ok := err.(container.DetachError); !ok {
+				return fmt.Errorf("exec attach failed with error: %v", err)
+			}
+			d.LogContainerEvent(c, "exec_detach")
+		}
 	}
 	return nil
 }

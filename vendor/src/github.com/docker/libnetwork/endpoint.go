@@ -69,6 +69,9 @@ type endpoint struct {
 	myAliases         []string
 	svcID             string
 	svcName           string
+	virtualIP         net.IP
+	svcAliases        []string
+	ingressPorts      []*PortConfig
 	dbIndex           uint64
 	dbExists          bool
 	sync.Mutex
@@ -82,6 +85,7 @@ func (ep *endpoint) MarshalJSON() ([]byte, error) {
 	epMap["name"] = ep.name
 	epMap["id"] = ep.id
 	epMap["ep_iface"] = ep.iface
+	epMap["joinInfo"] = ep.joinInfo
 	epMap["exposed_ports"] = ep.exposedPorts
 	if ep.generic != nil {
 		epMap["generic"] = ep.generic
@@ -93,6 +97,9 @@ func (ep *endpoint) MarshalJSON() ([]byte, error) {
 	epMap["myAliases"] = ep.myAliases
 	epMap["svcName"] = ep.svcName
 	epMap["svcID"] = ep.svcID
+	epMap["virtualIP"] = ep.virtualIP.String()
+	epMap["ingressPorts"] = ep.ingressPorts
+	epMap["svcAliases"] = ep.svcAliases
 
 	return json.Marshal(epMap)
 }
@@ -110,6 +117,9 @@ func (ep *endpoint) UnmarshalJSON(b []byte) (err error) {
 
 	ib, _ := json.Marshal(epMap["ep_iface"])
 	json.Unmarshal(ib, &ep.iface)
+
+	jb, _ := json.Marshal(epMap["joinInfo"])
+	json.Unmarshal(jb, &ep.joinInfo)
 
 	tb, _ := json.Marshal(epMap["exposed_ports"])
 	var tPorts []types.TransportPort
@@ -186,6 +196,20 @@ func (ep *endpoint) UnmarshalJSON(b []byte) (err error) {
 		ep.svcID = si.(string)
 	}
 
+	if vip, ok := epMap["virtualIP"]; ok {
+		ep.virtualIP = net.ParseIP(vip.(string))
+	}
+
+	sal, _ := json.Marshal(epMap["svcAliases"])
+	var svcAliases []string
+	json.Unmarshal(sal, &svcAliases)
+	ep.svcAliases = svcAliases
+
+	pc, _ := json.Marshal(epMap["ingressPorts"])
+	var ingressPorts []*PortConfig
+	json.Unmarshal(pc, &ingressPorts)
+	ep.ingressPorts = ingressPorts
+
 	ma, _ := json.Marshal(epMap["myAliases"])
 	var myAliases []string
 	json.Unmarshal(ma, &myAliases)
@@ -212,10 +236,22 @@ func (ep *endpoint) CopyTo(o datastore.KVObject) error {
 	dstEp.disableResolution = ep.disableResolution
 	dstEp.svcName = ep.svcName
 	dstEp.svcID = ep.svcID
+	dstEp.virtualIP = ep.virtualIP
+
+	dstEp.svcAliases = make([]string, len(ep.svcAliases))
+	copy(dstEp.svcAliases, ep.svcAliases)
+
+	dstEp.ingressPorts = make([]*PortConfig, len(ep.ingressPorts))
+	copy(dstEp.ingressPorts, ep.ingressPorts)
 
 	if ep.iface != nil {
 		dstEp.iface = &endpointInterface{}
 		ep.iface.CopyTo(dstEp.iface)
+	}
+
+	if ep.joinInfo != nil {
+		dstEp.joinInfo = &endpointJoinInfo{}
+		ep.joinInfo.CopyTo(dstEp.joinInfo)
 	}
 
 	dstEp.exposedPorts = make([]types.TransportPort, len(ep.exposedPorts))
@@ -429,7 +465,7 @@ func (ep *endpoint) sbJoin(sb *sandbox, options ...EndpointOption) error {
 	}()
 
 	// Watch for service records
-	if !n.getController().cfg.Daemon.IsAgent {
+	if !n.getController().isAgent() {
 		n.getController().watchSvcRecord(ep)
 	}
 
@@ -500,9 +536,6 @@ func (ep *endpoint) sbJoin(sb *sandbox, options ...EndpointOption) error {
 			}
 		}
 
-		if sb.resolver != nil {
-			sb.resolver.FlushExtServers()
-		}
 	}
 
 	if !sb.needDefaultGW() {
@@ -533,13 +566,16 @@ func (ep *endpoint) rename(name string) error {
 	n.updateSvcRecord(ep, n.getController().getLocalEps(netWatch), false)
 
 	oldName := ep.name
+	oldAnonymous := ep.anonymous
 	ep.name = name
+	ep.anonymous = false
 
 	n.updateSvcRecord(ep, n.getController().getLocalEps(netWatch), true)
 	defer func() {
 		if err != nil {
 			n.updateSvcRecord(ep, n.getController().getLocalEps(netWatch), false)
 			ep.name = oldName
+			ep.anonymous = oldAnonymous
 			n.updateSvcRecord(ep, n.getController().getLocalEps(netWatch), true)
 		}
 	}()
@@ -579,10 +615,6 @@ func (ep *endpoint) Leave(sbox Sandbox, options ...EndpointOption) error {
 
 	sb.joinLeaveStart()
 	defer sb.joinLeaveEnd()
-
-	if sb.resolver != nil {
-		sb.resolver.FlushExtServers()
-	}
 
 	return ep.sbLeave(sb, false, options...)
 }
@@ -683,18 +715,6 @@ func (ep *endpoint) sbLeave(sb *sandbox, force bool, options ...EndpointOption) 
 	return nil
 }
 
-func (n *network) validateForceDelete(locator string) error {
-	if n.Scope() == datastore.LocalScope {
-		return nil
-	}
-
-	if locator == "" {
-		return fmt.Errorf("invalid endpoint locator identifier")
-	}
-
-	return nil
-}
-
 func (ep *endpoint) Delete(force bool) error {
 	var err error
 	n, err := ep.getNetworkFromStore()
@@ -711,14 +731,7 @@ func (ep *endpoint) Delete(force bool) error {
 	epid := ep.id
 	name := ep.name
 	sbid := ep.sandboxID
-	locator := ep.locator
 	ep.Unlock()
-
-	if force {
-		if err = n.validateForceDelete(locator); err != nil {
-			return fmt.Errorf("unable to force delete endpoint %s: %v", name, err)
-		}
-	}
 
 	sb, _ := n.getController().SandboxByID(sbid)
 	if sb != nil && !force {
@@ -744,27 +757,18 @@ func (ep *endpoint) Delete(force bool) error {
 		}
 	}()
 
-	if err = n.getEpCnt().DecEndpointCnt(); err != nil && !force {
-		return err
-	}
-	defer func() {
-		if err != nil && !force {
-			if e := n.getEpCnt().IncEndpointCnt(); e != nil {
-				log.Warnf("failed to update network %s : %v", n.name, e)
-			}
-		}
-	}()
-
 	// unwatch for service records
-	if !n.getController().cfg.Daemon.IsAgent {
-		n.getController().unWatchSvcRecord(ep)
-	}
+	n.getController().unWatchSvcRecord(ep)
 
 	if err = ep.deleteEndpoint(force); err != nil && !force {
 		return err
 	}
 
 	ep.releaseAddress()
+
+	if err := n.getEpCnt().DecEndpointCnt(); err != nil {
+		log.Warnf("failed to decrement endpoint coint for ep %s: %v", ep.ID(), err)
+	}
 
 	return nil
 }
@@ -832,11 +836,25 @@ func EndpointOptionGeneric(generic map[string]interface{}) EndpointOption {
 	}
 }
 
+var (
+	linkLocalMask     = net.CIDRMask(16, 32)
+	linkLocalMaskIPv6 = net.CIDRMask(64, 128)
+)
+
 // CreateOptionIpam function returns an option setter for the ipam configuration for this endpoint
-func CreateOptionIpam(ipV4, ipV6 net.IP, ipamOptions map[string]string) EndpointOption {
+func CreateOptionIpam(ipV4, ipV6 net.IP, llIPs []net.IP, ipamOptions map[string]string) EndpointOption {
 	return func(ep *endpoint) {
 		ep.prefAddress = ipV4
 		ep.prefAddressV6 = ipV6
+		if len(llIPs) != 0 {
+			for _, ip := range llIPs {
+				nw := &net.IPNet{IP: ip, Mask: linkLocalMask}
+				if ip.To4() == nil {
+					nw.Mask = linkLocalMaskIPv6
+				}
+				ep.iface.llAddrs = append(ep.iface.llAddrs, nw)
+			}
+		}
 		ep.ipamOptions = ipamOptions
 	}
 }
@@ -892,10 +910,13 @@ func CreateOptionAlias(name string, alias string) EndpointOption {
 }
 
 // CreateOptionService function returns an option setter for setting service binding configuration
-func CreateOptionService(name, id string) EndpointOption {
+func CreateOptionService(name, id string, vip net.IP, ingressPorts []*PortConfig, aliases []string) EndpointOption {
 	return func(ep *endpoint) {
 		ep.svcName = name
 		ep.svcID = id
+		ep.virtualIP = vip
+		ep.ingressPorts = ingressPorts
+		ep.svcAliases = aliases
 	}
 }
 
@@ -931,7 +952,7 @@ func (ep *endpoint) assignAddress(ipam ipamapi.Ipam, assignIPv4, assignIPv6 bool
 	var err error
 
 	n := ep.getNetwork()
-	if n.Type() == "host" || n.Type() == "null" {
+	if n.hasSpecialDriver() {
 		return nil
 	}
 
@@ -1011,7 +1032,7 @@ func (ep *endpoint) assignAddressVersion(ipVer int, ipam ipamapi.Ipam) error {
 
 func (ep *endpoint) releaseAddress() {
 	n := ep.getNetwork()
-	if n.Type() == "host" || n.Type() == "null" {
+	if n.hasSpecialDriver() {
 		return
 	}
 
@@ -1037,6 +1058,13 @@ func (ep *endpoint) releaseAddress() {
 }
 
 func (c *controller) cleanupLocalEndpoints() {
+	// Get used endpoints
+	eps := make(map[string]interface{})
+	for _, sb := range c.sandboxes {
+		for _, ep := range sb.endpoints {
+			eps[ep.id] = true
+		}
+	}
 	nl, err := c.getNetworksForScope(datastore.LocalScope)
 	if err != nil {
 		log.Warnf("Could not get list of networks during endpoint cleanup: %v", err)
@@ -1051,6 +1079,9 @@ func (c *controller) cleanupLocalEndpoints() {
 		}
 
 		for _, ep := range epl {
+			if _, ok := eps[ep.id]; ok {
+				continue
+			}
 			log.Infof("Removing stale endpoint %s (%s)", ep.name, ep.id)
 			if err := ep.Delete(true); err != nil {
 				log.Warnf("Could not delete local endpoint %s during endpoint cleanup: %v", ep.name, err)

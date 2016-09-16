@@ -22,12 +22,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/opts"
 	"github.com/docker/docker/pkg/httputils"
-	"github.com/docker/docker/pkg/integration"
+	icmd "github.com/docker/docker/pkg/integration/cmd"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/stringutils"
-	"github.com/docker/engine-api/types"
 	"github.com/docker/go-connections/tlsconfig"
 	"github.com/docker/go-units"
 	"github.com/go-check/check"
@@ -124,8 +124,10 @@ func getTLSConfig() (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
-func sockConn(timeout time.Duration) (net.Conn, error) {
-	daemon := daemonHost()
+func sockConn(timeout time.Duration, daemon string) (net.Conn, error) {
+	if daemon == "" {
+		daemon = daemonHost()
+	}
 	daemonURL, err := url.Parse(daemon)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse url %q: %v", daemon, err)
@@ -168,7 +170,11 @@ func sockRequest(method, endpoint string, data interface{}) (int, []byte, error)
 }
 
 func sockRequestRaw(method, endpoint string, data io.Reader, ct string) (*http.Response, io.ReadCloser, error) {
-	req, client, err := newRequestClient(method, endpoint, data, ct)
+	return sockRequestRawToDaemon(method, endpoint, data, ct, "")
+}
+
+func sockRequestRawToDaemon(method, endpoint string, data io.Reader, ct, daemon string) (*http.Response, io.ReadCloser, error) {
+	req, client, err := newRequestClient(method, endpoint, data, ct, daemon)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -187,7 +193,7 @@ func sockRequestRaw(method, endpoint string, data io.Reader, ct string) (*http.R
 }
 
 func sockRequestHijack(method, endpoint string, data io.Reader, ct string) (net.Conn, *bufio.Reader, error) {
-	req, client, err := newRequestClient(method, endpoint, data, ct)
+	req, client, err := newRequestClient(method, endpoint, data, ct, "")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -197,8 +203,8 @@ func sockRequestHijack(method, endpoint string, data io.Reader, ct string) (net.
 	return conn, br, nil
 }
 
-func newRequestClient(method, endpoint string, data io.Reader, ct string) (*http.Request, *httputil.ClientConn, error) {
-	c, err := sockConn(time.Duration(10 * time.Second))
+func newRequestClient(method, endpoint string, data io.Reader, ct, daemon string) (*http.Request, *httputil.ClientConn, error) {
+	c, err := sockConn(time.Duration(10*time.Second), daemon)
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not dial docker daemon: %v", err)
 	}
@@ -222,16 +228,9 @@ func readBody(b io.ReadCloser) ([]byte, error) {
 	return ioutil.ReadAll(b)
 }
 
-func deleteContainer(container string) error {
-	container = strings.TrimSpace(strings.Replace(container, "\n", " ", -1))
-	rmArgs := strings.Split(fmt.Sprintf("rm -fv %v", container), " ")
-	exitCode, err := runCommand(exec.Command(dockerBinary, rmArgs...))
-	// set error manually if not set
-	if exitCode != 0 && err == nil {
-		err = fmt.Errorf("failed to remove container: `docker rm` exit is non-zero")
-	}
-
-	return err
+func deleteContainer(container ...string) error {
+	result := icmd.RunCommand(dockerBinary, append([]string{"rm", "-fv"}, container...)...)
+	return result.Compare(icmd.Success)
 }
 
 func getAllContainers() (string, error) {
@@ -250,13 +249,15 @@ func deleteAllContainers() error {
 		fmt.Println(containers)
 		return err
 	}
-
-	if containers != "" {
-		if err = deleteContainer(containers); err != nil {
-			return err
-		}
+	if containers == "" {
+		return nil
 	}
-	return nil
+
+	err = deleteContainer(strings.Split(strings.TrimSpace(containers), "\n")...)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+	return err
 }
 
 func deleteAllNetworks() error {
@@ -392,13 +393,7 @@ func getSliceOfPausedContainers() ([]string, error) {
 }
 
 func unpauseContainer(container string) error {
-	unpauseCmd := exec.Command(dockerBinary, "unpause", container)
-	exitCode, err := runCommand(unpauseCmd)
-	if exitCode != 0 && err == nil {
-		err = fmt.Errorf("failed to unpause container")
-	}
-
-	return err
+	return icmd.RunCommand(dockerBinary, "unpause", container).Error
 }
 
 func unpauseAllContainers() error {
@@ -422,24 +417,12 @@ func unpauseAllContainers() error {
 }
 
 func deleteImages(images ...string) error {
-	args := []string{"rmi", "-f"}
-	args = append(args, images...)
-	rmiCmd := exec.Command(dockerBinary, args...)
-	exitCode, err := runCommand(rmiCmd)
-	// set error manually if not set
-	if exitCode != 0 && err == nil {
-		err = fmt.Errorf("failed to remove image: `docker rmi` exit is non-zero")
-	}
-	return err
+	args := []string{dockerBinary, "rmi", "-f"}
+	return icmd.RunCmd(icmd.Cmd{Command: append(args, images...)}).Error
 }
 
 func imageExists(image string) error {
-	inspectCmd := exec.Command(dockerBinary, "inspect", image)
-	exitCode, err := runCommand(inspectCmd)
-	if exitCode != 0 && err == nil {
-		err = fmt.Errorf("couldn't find image %q", image)
-	}
-	return err
+	return icmd.RunCommand(dockerBinary, "inspect", image).Error
 }
 
 func pullImageIfNotExist(image string) error {
@@ -458,33 +441,49 @@ func dockerCmdWithError(args ...string) (string, int, error) {
 	if err := validateArgs(args...); err != nil {
 		return "", 0, err
 	}
-	out, code, err := integration.DockerCmdWithError(dockerBinary, args...)
-	if err != nil {
-		err = fmt.Errorf("%v: %s", err, out)
+	result := icmd.RunCommand(dockerBinary, args...)
+	if result.Error != nil {
+		return result.Combined(), result.ExitCode, result.Compare(icmd.Success)
 	}
-	return out, code, err
+	return result.Combined(), result.ExitCode, result.Error
 }
 
 func dockerCmdWithStdoutStderr(c *check.C, args ...string) (string, string, int) {
 	if err := validateArgs(args...); err != nil {
 		c.Fatalf(err.Error())
 	}
-	return integration.DockerCmdWithStdoutStderr(dockerBinary, c, args...)
+
+	result := icmd.RunCommand(dockerBinary, args...)
+	// TODO: why is c ever nil?
+	if c != nil {
+		c.Assert(result, icmd.Matches, icmd.Success)
+	}
+	return result.Stdout(), result.Stderr(), result.ExitCode
 }
 
 func dockerCmd(c *check.C, args ...string) (string, int) {
 	if err := validateArgs(args...); err != nil {
 		c.Fatalf(err.Error())
 	}
-	return integration.DockerCmd(dockerBinary, c, args...)
+	result := icmd.RunCommand(dockerBinary, args...)
+	c.Assert(result, icmd.Matches, icmd.Success)
+	return result.Combined(), result.ExitCode
+}
+
+func dockerCmdWithResult(args ...string) *icmd.Result {
+	return icmd.RunCommand(dockerBinary, args...)
+}
+
+func binaryWithArgs(args ...string) []string {
+	return append([]string{dockerBinary}, args...)
 }
 
 // execute a docker command with a timeout
-func dockerCmdWithTimeout(timeout time.Duration, args ...string) (string, int, error) {
+func dockerCmdWithTimeout(timeout time.Duration, args ...string) *icmd.Result {
 	if err := validateArgs(args...); err != nil {
-		return "", 0, err
+		return &icmd.Result{Error: err}
 	}
-	return integration.DockerCmdWithTimeout(dockerBinary, timeout, args...)
+	return icmd.RunCmd(icmd.Cmd{Command: binaryWithArgs(args...), Timeout: timeout})
 }
 
 // execute a docker command in a directory
@@ -492,15 +491,20 @@ func dockerCmdInDir(c *check.C, path string, args ...string) (string, int, error
 	if err := validateArgs(args...); err != nil {
 		c.Fatalf(err.Error())
 	}
-	return integration.DockerCmdInDir(dockerBinary, path, args...)
+	result := icmd.RunCmd(icmd.Cmd{Command: binaryWithArgs(args...), Dir: path})
+	return result.Combined(), result.ExitCode, result.Error
 }
 
 // execute a docker command in a directory with a timeout
-func dockerCmdInDirWithTimeout(timeout time.Duration, path string, args ...string) (string, int, error) {
+func dockerCmdInDirWithTimeout(timeout time.Duration, path string, args ...string) *icmd.Result {
 	if err := validateArgs(args...); err != nil {
-		return "", 0, err
+		return &icmd.Result{Error: err}
 	}
-	return integration.DockerCmdInDirWithTimeout(dockerBinary, timeout, path, args...)
+	return icmd.RunCmd(icmd.Cmd{
+		Command: binaryWithArgs(args...),
+		Timeout: timeout,
+		Dir:     path,
+	})
 }
 
 // validateArgs is a checker to ensure tests are not running commands which are
@@ -515,7 +519,7 @@ func validateArgs(args ...string) error {
 			foundBusybox = key
 		}
 		if (foundBusybox != -1) && (key == foundBusybox+1) && (strings.ToLower(value) == "top") {
-			return errors.New("Cannot use 'busybox top' in tests on Windows. Use runSleepingContainer()")
+			return errors.New("cannot use 'busybox top' in tests on Windows. Use runSleepingContainer()")
 		}
 	}
 	return nil
@@ -750,6 +754,10 @@ func newRemoteFileServer(ctx *FakeContext) (*remoteFileServer, error) {
 		container = fmt.Sprintf("fileserver-cnt-%s", strings.ToLower(stringutils.GenerateRandomAlphaOnlyString(10)))
 	)
 
+	if err := ensureHTTPServerImage(); err != nil {
+		return nil, err
+	}
+
 	// Build the image
 	if err := fakeContextAddDockerfile(ctx, `FROM httpserver
 COPY . /static`); err != nil {
@@ -861,7 +869,7 @@ var errMountNotFound = errors.New("mount point not found")
 
 func inspectMountPointJSON(j, destination string) (types.MountPoint, error) {
 	var mp []types.MountPoint
-	if err := unmarshalJSON([]byte(j), &mp); err != nil {
+	if err := json.Unmarshal([]byte(j), &mp); err != nil {
 		return types.MountPoint{}, err
 	}
 
@@ -1254,7 +1262,7 @@ func daemonTime(c *check.C) time.Time {
 	return dt
 }
 
-// daemonUnixTime returns the current time on the daemon host with nanoseconds precission.
+// daemonUnixTime returns the current time on the daemon host with nanoseconds precision.
 // It return the time formatted how the client sends timestamps to the server.
 func daemonUnixTime(c *check.C) string {
 	return parseEventTime(daemonTime(c))
@@ -1349,17 +1357,12 @@ func buildImageCmdArgs(args []string, name, dockerfile string, useCache bool) *e
 }
 
 func waitForContainer(contID string, args ...string) error {
-	args = append([]string{"run", "--name", contID}, args...)
-	cmd := exec.Command(dockerBinary, args...)
-	if _, err := runCommand(cmd); err != nil {
-		return err
+	args = append([]string{dockerBinary, "run", "--name", contID}, args...)
+	result := icmd.RunCmd(icmd.Cmd{Command: args})
+	if result.Error != nil {
+		return result.Error
 	}
-
-	if err := waitRun(contID); err != nil {
-		return err
-	}
-
-	return nil
+	return waitRun(contID)
 }
 
 // waitRun will wait for the specified container to be running, maximum 5 seconds.
@@ -1385,22 +1388,22 @@ func waitInspectWithArgs(name, expr, expected string, timeout time.Duration, arg
 
 	args := append(arg, "inspect", "-f", expr, name)
 	for {
-		cmd := exec.Command(dockerBinary, args...)
-		out, _, err := runCommandWithOutput(cmd)
-		if err != nil {
-			if !strings.Contains(out, "No such") {
-				return fmt.Errorf("error executing docker inspect: %v\n%s", err, out)
+		result := icmd.RunCommand(dockerBinary, args...)
+		if result.Error != nil {
+			if !strings.Contains(result.Stderr(), "No such") {
+				return fmt.Errorf("error executing docker inspect: %v\n%s",
+					result.Stderr(), result.Stdout())
 			}
 			select {
 			case <-after:
-				return err
+				return result.Error
 			default:
 				time.Sleep(10 * time.Millisecond)
 				continue
 			}
 		}
 
-		out = strings.TrimSpace(out)
+		out := strings.TrimSpace(result.Stdout())
 		if out == expected {
 			break
 		}
@@ -1436,7 +1439,7 @@ func runSleepingContainerInImage(c *check.C, image string, extraArgs ...string) 
 	args := []string{"run", "-d"}
 	args = append(args, extraArgs...)
 	args = append(args, image)
-	args = append(args, defaultSleepCommand...)
+	args = append(args, sleepCommandForDaemonPlatform()...)
 	return dockerCmd(c, args...)
 }
 
@@ -1506,4 +1509,58 @@ func waitForGoroutines(expected int) error {
 			time.Sleep(200 * time.Millisecond)
 		}
 	}
+}
+
+// getErrorMessage returns the error message from an error API response
+func getErrorMessage(c *check.C, body []byte) string {
+	var resp types.ErrorResponse
+	c.Assert(json.Unmarshal(body, &resp), check.IsNil)
+	return strings.TrimSpace(resp.Message)
+}
+
+func waitAndAssert(c *check.C, timeout time.Duration, f checkF, checker check.Checker, args ...interface{}) {
+	after := time.After(timeout)
+	for {
+		v, comment := f(c)
+		assert, _ := checker.Check(append([]interface{}{v}, args...), checker.Info().Params)
+		select {
+		case <-after:
+			assert = true
+		default:
+		}
+		if assert {
+			if comment != nil {
+				args = append(args, comment)
+			}
+			c.Assert(v, checker, args...)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+type checkF func(*check.C) (interface{}, check.CommentInterface)
+type reducer func(...interface{}) interface{}
+
+func reducedCheck(r reducer, funcs ...checkF) checkF {
+	return func(c *check.C) (interface{}, check.CommentInterface) {
+		var values []interface{}
+		var comments []string
+		for _, f := range funcs {
+			v, comment := f(c)
+			values = append(values, v)
+			if comment != nil {
+				comments = append(comments, comment.CheckCommentString())
+			}
+		}
+		return r(values...), check.Commentf("%v", strings.Join(comments, ", "))
+	}
+}
+
+func sumAsIntegers(vals ...interface{}) interface{} {
+	var s int
+	for _, v := range vals {
+		s += v.(int)
+	}
+	return s
 }

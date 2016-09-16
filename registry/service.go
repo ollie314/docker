@@ -10,9 +10,15 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/distribution/registry/client/auth"
+	"github.com/docker/docker/api/types"
+	registrytypes "github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/reference"
-	"github.com/docker/engine-api/types"
-	registrytypes "github.com/docker/engine-api/types/registry"
+)
+
+const (
+	// DefaultSearchLimit is the default value for maximum number of returned search results.
+	DefaultSearchLimit = 25
 )
 
 // Service is the interface defining what a registry service should implement.
@@ -22,7 +28,7 @@ type Service interface {
 	LookupPushEndpoints(hostname string) (endpoints []APIEndpoint, err error)
 	ResolveRepository(name reference.Named) (*RepositoryInfo, error)
 	ResolveIndex(name string) (*registrytypes.IndexInfo, error)
-	Search(ctx context.Context, term string, authConfig *types.AuthConfig, userAgent string, headers map[string][]string) (*registrytypes.SearchResults, error)
+	Search(ctx context.Context, term string, limit int, authConfig *types.AuthConfig, userAgent string, headers map[string][]string) (*registrytypes.SearchResults, error)
 	ServiceConfig() *registrytypes.ServiceConfig
 	TLSConfig(hostname string) (*tls.Config, error)
 }
@@ -108,7 +114,7 @@ func splitReposSearchTerm(reposName string) (string, string) {
 
 // Search queries the public registry for images matching the specified
 // search terms, and returns the results.
-func (s *DefaultService) Search(ctx context.Context, term string, authConfig *types.AuthConfig, userAgent string, headers map[string][]string) (*registrytypes.SearchResults, error) {
+func (s *DefaultService) Search(ctx context.Context, term string, limit int, authConfig *types.AuthConfig, userAgent string, headers map[string][]string) (*registrytypes.SearchResults, error) {
 	// TODO Use ctx when searching for repositories
 	if err := validateNoScheme(term); err != nil {
 		return nil, err
@@ -127,10 +133,43 @@ func (s *DefaultService) Search(ctx context.Context, term string, authConfig *ty
 		return nil, err
 	}
 
-	r, err := NewSession(endpoint.client, authConfig, endpoint)
-	if err != nil {
-		return nil, err
+	var client *http.Client
+	if authConfig != nil && authConfig.IdentityToken != "" && authConfig.Username != "" {
+		creds := NewStaticCredentialStore(authConfig)
+		scopes := []auth.Scope{
+			auth.RegistryScope{
+				Name:    "catalog",
+				Actions: []string{"search"},
+			},
+		}
+
+		modifiers := DockerHeaders(userAgent, nil)
+		v2Client, foundV2, err := v2AuthHTTPClient(endpoint.URL, endpoint.client.Transport, modifiers, creds, scopes)
+		if err != nil {
+			if fErr, ok := err.(fallbackError); ok {
+				logrus.Errorf("Cannot use identity token for search, v2 auth not supported: %v", fErr.err)
+			} else {
+				return nil, err
+			}
+		} else if foundV2 {
+			// Copy non transport http client features
+			v2Client.Timeout = endpoint.client.Timeout
+			v2Client.CheckRedirect = endpoint.client.CheckRedirect
+			v2Client.Jar = endpoint.client.Jar
+
+			logrus.Debugf("using v2 client for search to %s", endpoint.URL)
+			client = v2Client
+		}
 	}
+
+	if client == nil {
+		client = endpoint.client
+		if err := authorizeClient(client, authConfig, endpoint); err != nil {
+			return nil, err
+		}
+	}
+
+	r := newSession(client, authConfig, endpoint)
 
 	if index.Official {
 		localName := remoteName
@@ -139,9 +178,9 @@ func (s *DefaultService) Search(ctx context.Context, term string, authConfig *ty
 			localName = strings.SplitN(localName, "/", 2)[1]
 		}
 
-		return r.SearchRepositories(localName)
+		return r.SearchRepositories(localName, limit)
 	}
-	return r.SearchRepositories(remoteName)
+	return r.SearchRepositories(remoteName, limit)
 }
 
 // ResolveRepository splits a repository name into its components

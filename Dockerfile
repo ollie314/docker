@@ -9,7 +9,7 @@
 # docker run -v `pwd`:/go/src/github.com/docker/docker --privileged -i -t docker bash
 #
 # # Run the test suite:
-# docker run --privileged docker hack/make.sh test
+# docker run --privileged docker hack/make.sh test-unit test-integration-cli test-docker-py
 #
 # # Publish a release:
 # docker run --privileged \
@@ -30,10 +30,6 @@ RUN apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys E87
 	|| apt-key adv --keyserver hkp://pgp.mit.edu:80 --recv-keys E871F18B51E0147C77796AC81196BA81F6B0FC61
 RUN echo deb http://ppa.launchpad.net/zfs-native/stable/ubuntu trusty main > /etc/apt/sources.list.d/zfs.list
 
-# add llvm repo
-RUN apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421 \
-	|| apt-key adv --keyserver hkp://pgp.mit.edu:80 --recv-keys 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
-RUN echo deb http://llvm.org/apt/jessie/ llvm-toolchain-jessie-3.8 main > /etc/apt/sources.list.d/llvm.list
 
 # allow replacing httpredir mirror
 ARG APT_MIRROR=httpredir.debian.org
@@ -50,7 +46,7 @@ RUN apt-get update && apt-get install -y \
 	bsdmainutils \
 	btrfs-tools \
 	build-essential \
-	clang-3.8 \
+	clang \
 	createrepo \
 	curl \
 	dpkg-sig \
@@ -61,12 +57,17 @@ RUN apt-get update && apt-get install -y \
 	libapparmor-dev \
 	libcap-dev \
 	libltdl-dev \
+	libnl-3-dev \
+	libprotobuf-c0-dev \
+	libprotobuf-dev	\
 	libsqlite3-dev \
 	libsystemd-journal-dev \
 	libtool \
 	mercurial \
 	net-tools \
 	pkg-config \
+	protobuf-compiler \
+	protobuf-c-compiler \
 	python-dev \
 	python-mock \
 	python-pip \
@@ -77,10 +78,7 @@ RUN apt-get update && apt-get install -y \
 	tar \
 	zip \
 	--no-install-recommends \
-	&& pip install awscli==1.10.15 \
-	&& ln -snf /usr/bin/clang-3.8 /usr/local/bin/clang \
-	&& ln -snf /usr/bin/clang++-3.8 /usr/local/bin/clang++
-
+	&& pip install awscli==1.10.15
 # Get lvm2 source for compiling statically
 ENV LVM2_VERSION 2.02.103
 RUN mkdir -p /usr/local/lvm2 \
@@ -99,7 +97,7 @@ RUN cd /usr/local/lvm2 \
 
 # Configure the container for OSX cross compilation
 ENV OSX_SDK MacOSX10.11.sdk
-ENV OSX_CROSS_COMMIT 8aa9b71a394905e6c5f4b59e2b97b87a004658a4
+ENV OSX_CROSS_COMMIT a9317c18a3a457ca0a657f08cc4d0d43c6cf8953
 RUN set -x \
 	&& export OSXCROSS_PATH="/osxcross" \
 	&& git clone https://github.com/tpoechtrager/osxcross.git $OSXCROSS_PATH \
@@ -109,7 +107,7 @@ RUN set -x \
 ENV PATH /osxcross/target/bin:$PATH
 
 # install seccomp: the version shipped in trusty is too old
-ENV SECCOMP_VERSION 2.3.0
+ENV SECCOMP_VERSION 2.3.1
 RUN set -x \
 	&& export SECCOMP_PATH="$(mktemp -d)" \
 	&& curl -fsSL "https://github.com/seccomp/libseccomp/releases/download/v${SECCOMP_VERSION}/libseccomp-${SECCOMP_VERSION}.tar.gz" \
@@ -127,7 +125,7 @@ RUN set -x \
 # IMPORTANT: If the version of Go is updated, the Windows to Linux CI machines
 #            will need updating, to avoid errors. Ping #docker-maintainers on IRC
 #            with a heads-up.
-ENV GO_VERSION 1.6.2
+ENV GO_VERSION 1.7.1
 RUN curl -fsSL "https://storage.googleapis.com/golang/go${GO_VERSION}.linux-amd64.tar.gz" \
 	| tar -xzC /usr/local
 
@@ -141,23 +139,24 @@ ENV DOCKER_CROSSPLATFORMS \
 	freebsd/amd64 freebsd/386 freebsd/arm \
 	windows/amd64 windows/386
 
-# This has been commented out and kept as reference because we don't support compiling with older Go anymore.
-# ENV GOFMT_VERSION 1.3.3
-# RUN curl -sSL https://storage.googleapis.com/golang/go${GOFMT_VERSION}.$(go env GOOS)-$(go env GOARCH).tar.gz | tar -C /go/bin -xz --strip-components=2 go/bin/gofmt
-
+# Dependency for golint
 ENV GO_TOOLS_COMMIT 823804e1ae08dbb14eb807afc7db9993bc9e3cc3
-# Grab Go's cover tool for dead-simple code coverage testing
-# Grab Go's vet tool for examining go code to find suspicious constructs
-# and help prevent errors that the compiler might not catch
 RUN git clone https://github.com/golang/tools.git /go/src/golang.org/x/tools \
-	&& (cd /go/src/golang.org/x/tools && git checkout -q $GO_TOOLS_COMMIT) \
-	&& go install -v golang.org/x/tools/cmd/cover \
-	&& go install -v golang.org/x/tools/cmd/vet
+	&& (cd /go/src/golang.org/x/tools && git checkout -q $GO_TOOLS_COMMIT)
+
 # Grab Go's lint tool
 ENV GO_LINT_COMMIT 32a87160691b3c96046c0c678fe57c5bef761456
 RUN git clone https://github.com/golang/lint.git /go/src/github.com/golang/lint \
 	&& (cd /go/src/github.com/golang/lint && git checkout -q $GO_LINT_COMMIT) \
 	&& go install -v github.com/golang/lint/golint
+
+# Install CRIU for checkpoint/restore support
+ENV CRIU_VERSION 2.2
+RUN mkdir -p /usr/src/criu \
+	&& curl -sSL https://github.com/xemul/criu/archive/v${CRIU_VERSION}.tar.gz | tar -v -C /usr/src/criu/ -xz --strip-components=1 \
+	&& cd /usr/src/criu \
+	&& make \
+	&& make install-criu
 
 # Install two versions of the registry. The first is an older version that
 # only supports schema1 manifests. The second is a newer version that supports
@@ -179,7 +178,6 @@ RUN set -x \
 # Install notary and notary-server
 ENV NOTARY_VERSION v0.3.0
 RUN set -x \
-	&& export GO15VENDOREXPERIMENT=1 \
 	&& export GOPATH="$(mktemp -d)" \
 	&& git clone https://github.com/docker/notary.git "$GOPATH/src/github.com/docker/notary" \
 	&& (cd "$GOPATH/src/github.com/docker/notary" && git checkout -q "$NOTARY_VERSION") \
@@ -190,7 +188,7 @@ RUN set -x \
 	&& rm -rf "$GOPATH"
 
 # Get the "docker-py" source so we can run their integration tests
-ENV DOCKER_PY_COMMIT 7befe694bd21e3c54bb1d7825270ea4bd6864c13
+ENV DOCKER_PY_COMMIT e2655f658408f9ad1f62abdef3eb6ed43c0cf324
 RUN git clone https://github.com/docker/docker-py.git /docker-py \
 	&& cd /docker-py \
 	&& git checkout -q $DOCKER_PY_COMMIT \
@@ -209,6 +207,8 @@ ENV DOCKER_BUILDTAGS apparmor pkcs11 seccomp selinux
 
 # Let us use a .bashrc file
 RUN ln -sfv $PWD/.bashrc ~/.bashrc
+# Add integration helps to bashrc
+RUN echo "source $PWD/hack/make/.integration-test-helpers" >> /etc/bash.bashrc
 
 # Register Docker's bash completion.
 RUN ln -sv $PWD/contrib/completion/bash/docker /etc/bash_completion.d/docker
@@ -222,15 +222,6 @@ RUN ./contrib/download-frozen-image-v2.sh /docker-frozen-images \
 	hello-world:latest@sha256:8be990ef2aeb16dbcb9271ddfe2610fa6658d13f6dfb8bc72074cc1ca36966a7
 # see also "hack/make/.ensure-frozen-images" (which needs to be updated any time this list is)
 
-# Download man page generator
-RUN set -x \
-	&& export GOPATH="$(mktemp -d)" \
-	&& git clone --depth 1 -b v1.0.4 https://github.com/cpuguy83/go-md2man.git "$GOPATH/src/github.com/cpuguy83/go-md2man" \
-	&& git clone --depth 1 -b v1.4 https://github.com/russross/blackfriday.git "$GOPATH/src/github.com/russross/blackfriday" \
-	&& go get -v -d github.com/cpuguy83/go-md2man \
-	&& go build -v -o /usr/local/bin/go-md2man github.com/cpuguy83/go-md2man \
-	&& rm -rf "$GOPATH"
-
 # Download toml validator
 ENV TOMLV_COMMIT 9baf8a8a9f2ed20a8e54160840c492f937eeaf9a
 RUN set -x \
@@ -241,7 +232,7 @@ RUN set -x \
 	&& rm -rf "$GOPATH"
 
 # Install runc
-ENV RUNC_COMMIT d49ece5a83da3dcb820121d6850e2b61bd0a5fbe
+ENV RUNC_COMMIT cc29e3dded8e27ba8f65738f40d251c885030a28
 RUN set -x \
 	&& export GOPATH="$(mktemp -d)" \
 	&& git clone https://github.com/opencontainers/runc.git "$GOPATH/src/github.com/opencontainers/runc" \
@@ -252,7 +243,7 @@ RUN set -x \
 	&& rm -rf "$GOPATH"
 
 # Install containerd
-ENV CONTAINERD_COMMIT 57b7c3da915ebe943bd304c00890959b191e5264
+ENV CONTAINERD_COMMIT 4c21ad662f71af56c0e6b29c0afef72df441d1ff
 RUN set -x \
 	&& export GOPATH="$(mktemp -d)" \
 	&& git clone https://github.com/docker/containerd.git "$GOPATH/src/github.com/docker/containerd" \

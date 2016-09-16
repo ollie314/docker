@@ -6,30 +6,32 @@ import (
 	"github.com/BurntSushi/toml"
 	log "github.com/Sirupsen/logrus"
 	"github.com/docker/docker/pkg/discovery"
-	"github.com/docker/docker/pkg/tlsconfig"
+	"github.com/docker/go-connections/tlsconfig"
 	"github.com/docker/libkv/store"
+	"github.com/docker/libnetwork/cluster"
 	"github.com/docker/libnetwork/datastore"
 	"github.com/docker/libnetwork/netlabel"
+	"github.com/docker/libnetwork/osl"
 )
 
 // Config encapsulates configurations of various Libnetwork components
 type Config struct {
-	Daemon  DaemonCfg
-	Cluster ClusterCfg
-	Scopes  map[string]*datastore.ScopeCfg
+	Daemon          DaemonCfg
+	Cluster         ClusterCfg
+	Scopes          map[string]*datastore.ScopeCfg
+	ActiveSandboxes map[string]interface{}
 }
 
 // DaemonCfg represents libnetwork core configuration
 type DaemonCfg struct {
-	Debug          bool
-	IsAgent        bool
-	DataDir        string
-	DefaultNetwork string
-	DefaultDriver  string
-	Bind           string
-	Neighbors      []string
-	Labels         []string
-	DriverCfg      map[string]interface{}
+	Debug           bool
+	DataDir         string
+	DefaultNetwork  string
+	DefaultDriver   string
+	Labels          []string
+	DriverCfg       map[string]interface{}
+	ClusterProvider cluster.Provider
+	DisableProvider chan struct{}
 }
 
 // ClusterCfg represents cluster configuration
@@ -69,7 +71,8 @@ func ParseConfig(tomlCfgFile string) (*Config, error) {
 func ParseConfigOptions(cfgOptions ...Option) *Config {
 	cfg := &Config{
 		Daemon: DaemonCfg{
-			DriverCfg: make(map[string]interface{}),
+			DriverCfg:       make(map[string]interface{}),
+			DisableProvider: make(chan struct{}, 10),
 		},
 		Scopes: make(map[string]*datastore.ScopeCfg),
 	}
@@ -83,27 +86,6 @@ func ParseConfigOptions(cfgOptions ...Option) *Config {
 // Option is an option setter function type used to pass various configurations
 // to the controller
 type Option func(c *Config)
-
-// OptionBind function returns an option setter for setting a bind interface or address
-func OptionBind(bind string) Option {
-	return func(c *Config) {
-		c.Daemon.Bind = bind
-	}
-}
-
-// OptionAgent function returns an option setter for setting agent mode
-func OptionAgent() Option {
-	return func(c *Config) {
-		c.Daemon.IsAgent = true
-	}
-}
-
-// OptionNeighbors function returns an option setter for setting a list of neighbors to join.
-func OptionNeighbors(neighbors []string) Option {
-	return func(c *Config) {
-		c.Daemon.Neighbors = neighbors
-	}
-}
 
 // OptionDefaultNetwork function returns an option setter for a default network
 func OptionDefaultNetwork(dn string) Option {
@@ -216,6 +198,13 @@ func OptionDataDir(dataDir string) Option {
 	}
 }
 
+// OptionExecRoot function returns an option setter for exec root folder
+func OptionExecRoot(execRoot string) Option {
+	return func(c *Config) {
+		osl.SetBasePath(execRoot)
+	}
+}
+
 // ProcessOptions processes options and stores it in config
 func (c *Config) ProcessOptions(options ...Option) {
 	for _, opt := range options {
@@ -263,5 +252,13 @@ func OptionLocalKVProviderConfig(config *store.Config) Option {
 			c.Scopes[datastore.LocalScope] = &datastore.ScopeCfg{}
 		}
 		c.Scopes[datastore.LocalScope].Client.Config = config
+	}
+}
+
+// OptionActiveSandboxes function returns an option setter for passing the sandboxes
+// which were active during previous daemon life
+func OptionActiveSandboxes(sandboxes map[string]interface{}) Option {
+	return func(c *Config) {
+		c.ActiveSandboxes = sandboxes
 	}
 }

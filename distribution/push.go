@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/image"
@@ -14,7 +15,6 @@ import (
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
-	"github.com/docker/engine-api/types"
 	"github.com/docker/libtrust"
 	"golang.org/x/net/context"
 )
@@ -88,7 +88,7 @@ func NewPusher(ref reference.Named, endpoint registry.APIEndpoint, repoInfo *reg
 	return nil, fmt.Errorf("unknown version %d for registry %s", endpoint.Version, endpoint.URL)
 }
 
-// Push initiates a push operation on the repository named localName.
+// Push initiates a push operation on ref.
 // ref is the specific variant of the image to be pushed.
 // If no tag is provided, all tags will be pushed.
 func Push(ctx context.Context, ref reference.Named, imagePushConfig *ImagePushConfig) error {

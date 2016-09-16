@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/docker/engine-api/types/container"
+	"github.com/docker/docker/api/types/container"
 )
 
 // DefaultDaemonNetworkMode returns the default network stack the daemon should
@@ -42,7 +42,6 @@ func ValidateIsolation(hc *container.HostConfig) error {
 }
 
 // ValidateQoS performs platform specific validation of the QoS settings
-// a disk can be limited by either Bps or IOps, but not both.
 func ValidateQoS(hc *container.HostConfig) error {
 	return nil
 }

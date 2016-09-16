@@ -9,6 +9,8 @@ import (
 
 	"github.com/docker/docker/pkg/homedir"
 	"github.com/docker/docker/pkg/integration/checker"
+	icmd "github.com/docker/docker/pkg/integration/cmd"
+	"github.com/docker/docker/utils"
 	"github.com/go-check/check"
 )
 
@@ -56,12 +58,7 @@ func (s *DockerSuite) TestHelpTextVerify(c *check.C) {
 		out, _, err := runCommandWithOutput(helpCmd)
 		c.Assert(err, checker.IsNil, check.Commentf(out))
 		lines := strings.Split(out, "\n")
-		foundTooLongLine := false
 		for _, line := range lines {
-			if !foundTooLongLine && len(line) > 80 {
-				c.Logf("Line is too long:\n%s", line)
-				foundTooLongLine = true
-			}
 			// All lines should not end with a space
 			c.Assert(line, checker.Not(checker.HasSuffix), " ", check.Commentf("Line should not end with a space"))
 
@@ -119,6 +116,18 @@ func (s *DockerSuite) TestHelpTextVerify(c *check.C) {
 		cmdsToTest = append(cmdsToTest, "volume inspect")
 		cmdsToTest = append(cmdsToTest, "volume ls")
 		cmdsToTest = append(cmdsToTest, "volume rm")
+		cmdsToTest = append(cmdsToTest, "network connect")
+		cmdsToTest = append(cmdsToTest, "network create")
+		cmdsToTest = append(cmdsToTest, "network disconnect")
+		cmdsToTest = append(cmdsToTest, "network inspect")
+		cmdsToTest = append(cmdsToTest, "network ls")
+		cmdsToTest = append(cmdsToTest, "network rm")
+
+		if utils.ExperimentalBuild() {
+			cmdsToTest = append(cmdsToTest, "checkpoint create")
+			cmdsToTest = append(cmdsToTest, "checkpoint ls")
+			cmdsToTest = append(cmdsToTest, "checkpoint rm")
+		}
 
 		// Divide the list of commands into go routines and  run the func testcommand on the commands in parallel
 		// to save runtime of test
@@ -137,21 +146,10 @@ func (s *DockerSuite) TestHelpTextVerify(c *check.C) {
 				c.Fatal(err)
 			}
 		}
-
-		// Number of commands for standard release and experimental release
-		standard := 41
-		experimental := 1
-		expected := standard + experimental
-		if isLocalDaemon {
-			expected++ // for the daemon command
-		}
-		c.Assert(len(cmds), checker.LessOrEqualThan, expected, check.Commentf("Wrong # of cmds, it should be: %d\nThe list:\n%q", expected, cmds))
 	}
-
 }
 
 func (s *DockerSuite) TestHelpExitCodesHelpOutput(c *check.C) {
-	testRequires(c, DaemonIsLinux)
 	// Test to make sure the exit code and output (stdout vs stderr) of
 	// various good and bad cases are what we expect
 
@@ -188,7 +186,7 @@ func (s *DockerSuite) TestHelpExitCodesHelpOutput(c *check.C) {
 	c.Assert(stdout, checker.Equals, "")
 	// Should not contain full help text but should contain info about
 	// # of args and Usage line
-	c.Assert(stderr, checker.Contains, "requires a minimum", check.Commentf("Missing # of args text from 'docker rm'\n"))
+	c.Assert(stderr, checker.Contains, "requires at least 1 argument", check.Commentf("Missing # of args text from 'docker rm'\n"))
 
 	// docker rm NoSuchContainer: stdout=empty, stderr=all, rc=0
 	// testing to make sure no blank line on error
@@ -233,14 +231,6 @@ func testCommand(cmd string, newEnvs []string, scanForHome bool, home string) er
 	// Check each line for lots of stuff
 	lines := strings.Split(out, "\n")
 	for _, line := range lines {
-		if len(line) > 107 {
-			return fmt.Errorf("Help for %q is too long:\n%s\n", cmd, line)
-		}
-
-		if scanForHome && strings.Contains(line, `"`+home) {
-			return fmt.Errorf("Help for %q should use ~ instead of %q on:\n%s\n",
-				cmd, home, line)
-		}
 		i := strings.Index(line, "~")
 		if i >= 0 && i != len(line)-1 && line[i+1] != '/' {
 			return fmt.Errorf("Help for %q should not have used ~:\n%s", cmd, line)
@@ -249,7 +239,8 @@ func testCommand(cmd string, newEnvs []string, scanForHome bool, home string) er
 		// If a line starts with 4 spaces then assume someone
 		// added a multi-line description for an option and we need
 		// to flag it
-		if strings.HasPrefix(line, "    ") {
+		if strings.HasPrefix(line, "    ") &&
+			!strings.HasPrefix(strings.TrimLeft(line, " "), "--") {
 			return fmt.Errorf("Help for %q should not have a multi-line option", cmd)
 		}
 
@@ -260,7 +251,7 @@ func testCommand(cmd string, newEnvs []string, scanForHome bool, home string) er
 
 		// Options should NOT end with a space
 		if strings.HasSuffix(line, " ") {
-			return fmt.Errorf("Help for %q should not end with a space", cmd)
+			return fmt.Errorf("Help for %q should not end with a space: %s", cmd, line)
 		}
 
 	}
@@ -285,18 +276,15 @@ func testCommand(cmd string, newEnvs []string, scanForHome bool, home string) er
 
 	// These commands will never print a short-usage so don't test
 	noShortUsage := map[string]string{
-		"images":  "",
-		"login":   "",
-		"logout":  "",
-		"network": "",
-		"stats":   "",
+		"images":        "",
+		"login":         "",
+		"logout":        "",
+		"network":       "",
+		"stats":         "",
+		"volume create": "",
 	}
 
 	if _, ok := noShortUsage[cmd]; !ok {
-		// For each command run it w/o any args. It will either return
-		// valid output or print a short-usage
-		var dCmd *exec.Cmd
-
 		// skipNoArgs are ones that we don't want to try w/o
 		// any args. Either because it'll hang the test or
 		// lead to incorrect test result (like false negative).
@@ -308,33 +296,31 @@ func testCommand(cmd string, newEnvs []string, scanForHome bool, home string) er
 			"load":   {},
 		}
 
-		ec := 0
+		var result *icmd.Result
 		if _, ok := skipNoArgs[cmd]; !ok {
-			args = strings.Split(cmd, " ")
-			dCmd = exec.Command(dockerBinary, args...)
-			out, stderr, ec, err = runCommandWithStdoutStderr(dCmd)
+			result = dockerCmdWithResult(strings.Split(cmd, " ")...)
 		}
 
 		// If its ok w/o any args then try again with an arg
-		if ec == 0 {
-			args = strings.Split(cmd+" badArg", " ")
-			dCmd = exec.Command(dockerBinary, args...)
-			out, stderr, ec, err = runCommandWithStdoutStderr(dCmd)
+		if result == nil || result.ExitCode == 0 {
+			result = dockerCmdWithResult(strings.Split(cmd+" badArg", " ")...)
 		}
 
-		if len(out) != 0 || len(stderr) == 0 || ec == 0 || err == nil {
-			return fmt.Errorf("Bad output from %q\nstdout:%q\nstderr:%q\nec:%d\nerr:%q\n", args, out, stderr, ec, err)
+		if err := result.Compare(icmd.Expected{
+			Out:      icmd.None,
+			Err:      "\nUsage:",
+			ExitCode: 1,
+		}); err != nil {
+			return err
 		}
-		// Should have just short usage
-		if !strings.Contains(stderr, "\nUsage:\t") {
-			return fmt.Errorf("Missing short usage on %q\n", args)
-		}
-		// But shouldn't have full usage
+
+		stderr := result.Stderr()
+		// Shouldn't have full usage
 		if strings.Contains(stderr, "--help=false") {
-			return fmt.Errorf("Should not have full usage on %q\n", args)
+			return fmt.Errorf("Should not have full usage on %q:%v", result.Cmd.Args, stderr)
 		}
 		if strings.HasSuffix(stderr, "\n\n") {
-			return fmt.Errorf("Should not have a blank line on %q\n", args)
+			return fmt.Errorf("Should not have a blank line on %q\n%v", result.Cmd.Args, stderr)
 		}
 	}
 

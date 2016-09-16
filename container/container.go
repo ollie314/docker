@@ -16,6 +16,9 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/Sirupsen/logrus"
+	containertypes "github.com/docker/docker/api/types/container"
+	mounttypes "github.com/docker/docker/api/types/mount"
+	networktypes "github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/daemon/exec"
 	"github.com/docker/docker/daemon/logger"
 	"github.com/docker/docker/daemon/logger/jsonfilelog"
@@ -31,8 +34,6 @@ import (
 	"github.com/docker/docker/runconfig"
 	runconfigopts "github.com/docker/docker/runconfig/opts"
 	"github.com/docker/docker/volume"
-	containertypes "github.com/docker/engine-api/types/container"
-	networktypes "github.com/docker/engine-api/types/network"
 	"github.com/docker/go-connections/nat"
 	"github.com/docker/libnetwork"
 	"github.com/docker/libnetwork/netlabel"
@@ -48,6 +49,13 @@ var (
 	errInvalidNetwork  = fmt.Errorf("invalid network settings while building port map info")
 )
 
+// DetachError is special error which returned in case of container detach.
+type DetachError struct{}
+
+func (DetachError) Error() string {
+	return "detached from container"
+}
+
 // CommonContainer holds the fields for a container which are
 // applicable across all platforms supported by the daemon.
 type CommonContainer struct {
@@ -59,6 +67,7 @@ type CommonContainer struct {
 	RWLayer         layer.RWLayer  `json:"-"`
 	ID              string
 	Created         time.Time
+	Managed         bool
 	Path            string
 	Args            []string
 	Config          *containertypes.Config
@@ -298,6 +307,11 @@ func (container *Container) ConfigPath() (string, error) {
 	return container.GetRootResourcePath(configFileName)
 }
 
+// CheckpointDir returns the directory checkpoints are stored in
+func (container *Container) CheckpointDir() string {
+	return filepath.Join(container.Root, "checkpoints")
+}
+
 // StartLogger starts a new logger driver for the container.
 func (container *Container) StartLogger(cfg containertypes.LogConfig) (logger.Logger, error) {
 	c, err := logger.GetLogDriver(cfg.Type)
@@ -315,6 +329,7 @@ func (container *Container) StartLogger(cfg containertypes.LogConfig) (logger.Lo
 		ContainerCreated:    container.Created,
 		ContainerEnv:        container.Config.Env,
 		ContainerLabels:     container.Config.Labels,
+		DaemonName:          "docker",
 	}
 
 	// Set logging file for "json-logger"
@@ -385,14 +400,13 @@ func AttachStreams(ctx context.Context, streamConfig *runconfig.StreamConfig, op
 		if stdin == nil || !openStdin {
 			return
 		}
-		logrus.Debugf("attach: stdin: begin")
+		logrus.Debug("attach: stdin: begin")
 
 		var err error
 		if tty {
 			_, err = copyEscapable(cStdin, stdin, keys)
 		} else {
 			_, err = io.Copy(cStdin, stdin)
-
 		}
 		if err == io.ErrClosedPipe {
 			err = nil
@@ -412,7 +426,7 @@ func AttachStreams(ctx context.Context, streamConfig *runconfig.StreamConfig, op
 				cStderr.Close()
 			}
 		}
-		logrus.Debugf("attach: stdin: end")
+		logrus.Debug("attach: stdin: end")
 		wg.Done()
 	}()
 
@@ -491,10 +505,8 @@ func copyEscapable(dst io.Writer, src io.ReadCloser, keys []byte) (written int64
 					break
 				}
 				if i == len(keys)-1 {
-					if err := src.Close(); err != nil {
-						return 0, err
-					}
-					return 0, nil
+					src.Close()
+					return 0, DetachError{}
 				}
 				nr, er = src.Read(buf)
 			}
@@ -533,13 +545,14 @@ func copyEscapable(dst io.Writer, src io.ReadCloser, keys []byte) (written int64
 // ShouldRestart decides whether the daemon should restart the container or not.
 // This is based on the container's restart policy.
 func (container *Container) ShouldRestart() bool {
-	shouldRestart, _, _ := container.restartManager.ShouldRestart(uint32(container.ExitCode), container.HasBeenManuallyStopped, container.FinishedAt.Sub(container.StartedAt))
+	shouldRestart, _, _ := container.restartManager.ShouldRestart(uint32(container.ExitCode()), container.HasBeenManuallyStopped, container.FinishedAt.Sub(container.StartedAt))
 	return shouldRestart
 }
 
 // AddMountPointWithVolume adds a new mount point configured with a volume to the container.
 func (container *Container) AddMountPointWithVolume(destination string, vol volume.Volume, rw bool) {
 	container.MountPoints[destination] = &volume.MountPoint{
+		Type:        mounttypes.TypeVolume,
 		Name:        vol.Name(),
 		Driver:      vol.DriverName(),
 		Destination: destination,
@@ -694,7 +707,9 @@ func (container *Container) BuildEndpointInfo(n libnetwork.Network, ep libnetwor
 	}
 
 	if _, ok := networkSettings.Networks[n.Name()]; !ok {
-		networkSettings.Networks[n.Name()] = new(networktypes.EndpointSettings)
+		networkSettings.Networks[n.Name()] = &network.EndpointSettings{
+			EndpointSettings: &networktypes.EndpointSettings{},
+		}
 	}
 	networkSettings.Networks[n.Name()].NetworkID = n.ID()
 	networkSettings.Networks[n.Name()].EndpointID = ep.ID()
@@ -783,14 +798,41 @@ func (container *Container) BuildCreateEndpointOptions(n libnetwork.Network, epC
 
 	if epConfig != nil {
 		ipam := epConfig.IPAMConfig
-		if ipam != nil && (ipam.IPv4Address != "" || ipam.IPv6Address != "") {
+		if ipam != nil && (ipam.IPv4Address != "" || ipam.IPv6Address != "" || len(ipam.LinkLocalIPs) > 0) {
+			var ipList []net.IP
+			for _, ips := range ipam.LinkLocalIPs {
+				if ip := net.ParseIP(ips); ip != nil {
+					ipList = append(ipList, ip)
+				}
+			}
 			createOptions = append(createOptions,
-				libnetwork.CreateOptionIpam(net.ParseIP(ipam.IPv4Address), net.ParseIP(ipam.IPv6Address), nil))
+				libnetwork.CreateOptionIpam(net.ParseIP(ipam.IPv4Address), net.ParseIP(ipam.IPv6Address), ipList, nil))
 		}
 
 		for _, alias := range epConfig.Aliases {
 			createOptions = append(createOptions, libnetwork.CreateOptionMyAlias(alias))
 		}
+	}
+
+	if container.NetworkSettings.Service != nil {
+		svcCfg := container.NetworkSettings.Service
+
+		var vip string
+		if svcCfg.VirtualAddresses[n.ID()] != nil {
+			vip = svcCfg.VirtualAddresses[n.ID()].IPv4
+		}
+
+		var portConfigs []*libnetwork.PortConfig
+		for _, portConfig := range svcCfg.ExposedPorts {
+			portConfigs = append(portConfigs, &libnetwork.PortConfig{
+				Name:          portConfig.Name,
+				Protocol:      libnetwork.PortConfig_Protocol(portConfig.Protocol),
+				TargetPort:    portConfig.TargetPort,
+				PublishedPort: portConfig.PublishedPort,
+			})
+		}
+
+		createOptions = append(createOptions, libnetwork.CreateOptionService(svcCfg.Name, svcCfg.ID, net.ParseIP(vip), portConfigs, svcCfg.Aliases[n.ID()]))
 	}
 
 	if !containertypes.NetworkMode(n.Name()).IsUserDefined() {
@@ -918,7 +960,7 @@ type attachContext struct {
 	mu     sync.Mutex
 }
 
-// InitAttachContext initialize or returns existing context for attach calls to
+// InitAttachContext initializes or returns existing context for attach calls to
 // track container liveness.
 func (container *Container) InitAttachContext() context.Context {
 	container.attachContext.mu.Lock()
@@ -929,7 +971,7 @@ func (container *Container) InitAttachContext() context.Context {
 	return container.attachContext.ctx
 }
 
-// CancelAttachContext cancel attach context. All attach calls should detach
+// CancelAttachContext cancels attach context. All attach calls should detach
 // after this call.
 func (container *Container) CancelAttachContext() {
 	container.attachContext.mu.Lock()

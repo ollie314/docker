@@ -16,18 +16,21 @@ import (
 )
 
 const (
-	defaultTimeOut = 30
+	defaultTimeOut     = 30
+	defaultHTTPTimeOut = 32 * time.Second
 )
 
 // NewClient creates a new plugin client (http).
-func NewClient(addr string, tlsConfig tlsconfig.Options) (*Client, error) {
+func NewClient(addr string, tlsConfig *tlsconfig.Options) (*Client, error) {
 	tr := &http.Transport{}
 
-	c, err := tlsconfig.Client(tlsConfig)
-	if err != nil {
-		return nil, err
+	if tlsConfig != nil {
+		c, err := tlsconfig.Client(*tlsConfig)
+		if err != nil {
+			return nil, err
+		}
+		tr.TLSClientConfig = c
 	}
-	tr.TLSClientConfig = c
 
 	u, err := url.Parse(addr)
 	if err != nil {
@@ -51,6 +54,7 @@ func NewClient(addr string, tlsConfig tlsconfig.Options) (*Client, error) {
 func NewClientWithTransport(tr transport.Transport) *Client {
 	return &Client{
 		http: &http.Client{
+			Timeout:   defaultHTTPTimeOut,
 			Transport: tr,
 		},
 		requestFactory: tr,
@@ -130,7 +134,7 @@ func (c *Client) callWithRetry(serviceMethod string, data io.Reader, retry bool)
 				return nil, err
 			}
 			retries++
-			logrus.Warnf("Unable to connect to plugin: %s:%s, retrying in %v", req.URL.Host, req.URL.Path, timeOff)
+			logrus.Warnf("Unable to connect to plugin: %s%s: %v, retrying in %v", req.URL.Host, req.URL.Path, err, timeOff)
 			time.Sleep(timeOff)
 			continue
 		}

@@ -5,7 +5,6 @@ description = "Describes how to use the Google Cloud Logging driver."
 keywords = ["gcplogs, google, docker, logging, driver"]
 [menu.main]
 parent = "smn_logging"
-weight = 2
 +++
 <![end-metadata]-->
 
@@ -19,7 +18,7 @@ Logging</a>.
 You can configure the default logging driver by passing the `--log-driver`
 option to the Docker daemon:
 
-    docker daemon --log-driver=gcplogs
+    dockerd --log-driver=gcplogs
 
 You can set the logging driver for a specific container by using the
 `--log-driver` option to `docker run`:
@@ -35,8 +34,12 @@ Otherwise, the user must specify which project to log to using the `--gcp-projec
 log option and Docker will attempt to obtain credentials from the
 <a href="https://developers.google.com/identity/protocols/application-default-credentials" target="_blank">Google Application Default Credential</a>.
 The `--gcp-project` takes precedence over information discovered from the metadata server
-so a Docker daemon running in a Google Cloud Project can be overriden to log to a different
+so a Docker daemon running in a Google Cloud Project can be overridden to log to a different
 Google Cloud Project using `--gcp-project`.
+
+Docker fetches the values for zone, instance name and instance id from Google
+Cloud metadata server. Those values can be provided via options if metadata
+server is not available. They will not override the values from metadata server.
 
 ## gcplogs options
 
@@ -49,6 +52,9 @@ Cloud Logging driver options:
 | `gcp-log-cmd`               | optional | Whether to log the command that the container was started with. Defaults to false.                                                          |
 | `labels`                    | optional | Comma-separated list of keys of labels, which should be included in message, if these labels are specified for container.                   |
 | `env`                       | optional | Comma-separated list of keys of environment variables, which should be included in message, if these variables are specified for container. |
+| `gcp-meta-zone`             | optional | Zone name for the instance. |
+| `gcp-meta-name`             | optional | Instance name. |
+| `gcp-meta-id`               | optional | Instance ID. |
 
 If there is collision between `label` and `env` keys, the value of the `env`
 takes precedence. Both options add additional fields to the attributes of a
@@ -58,13 +64,22 @@ Below is an example of the logging options required to log to the default
 logging destination which is discovered by querying the GCE metadata server.
 
     docker run --log-driver=gcplogs \
-        --log-opt labels=location
-        --log-opt env=TEST
-        --log-opt gcp-log-cmd=true
-        --env "TEST=false"
-        --label location=west
+        --log-opt labels=location \
+        --log-opt env=TEST \
+        --log-opt gcp-log-cmd=true \
+        --env "TEST=false" \
+        --label location=west \
         your/application
 
 This configuration also directs the driver to include in the payload the label
 `location`, the environment variable `ENV`, and the command used to start the
 container.
+
+An example of the logging options for running outside of GCE (the daemon must be
+configured with GOOGLE_APPLICATION_CREDENTIALS):
+
+    docker run --log-driver=gcplogs \
+        --log-opt gcp-project=test-project
+        --log-opt gcp-meta-zone=west1 \
+        --log-opt gcp-meta-name=`hostname` \
+        your/application

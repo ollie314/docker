@@ -86,21 +86,21 @@ the `Using cache` message in the console output.
 
     $ docker build -t svendowideit/ambassador .
     Sending build context to Docker daemon 15.36 kB
-    Step 0 : FROM alpine:3.2
+    Step 1 : FROM alpine:3.2
      ---> 31f630c65071
-    Step 1 : MAINTAINER SvenDowideit@home.org.au
+    Step 2 : MAINTAINER SvenDowideit@home.org.au
      ---> Using cache
      ---> 2a1c91448f5f
-    Step 2 : RUN apk update &&      apk add socat &&        rm -r /var/cache/
+    Step 3 : RUN apk update &&      apk add socat &&        rm -r /var/cache/
      ---> Using cache
      ---> 21ed6e7fbb73
-    Step 3 : CMD env | grep _TCP= | (sed 's/.*_PORT_\([0-9]*\)_TCP=tcp:\/\/\(.*\):\(.*\)/socat -t 100000000 TCP4-LISTEN:\1,fork,reuseaddr TCP4:\2:\3 \&/' && echo wait) | sh
+    Step 4 : CMD env | grep _TCP= | (sed 's/.*_PORT_\([0-9]*\)_TCP=tcp:\/\/\(.*\):\(.*\)/socat -t 100000000 TCP4-LISTEN:\1,fork,reuseaddr TCP4:\2:\3 \&/' && echo wait) | sh
      ---> Using cache
      ---> 7ea8aef582cc
     Successfully built 7ea8aef582cc
 
 When you're done with your build, you're ready to look into [*Pushing a
-repository to its registry*](../userguide/containers/dockerrepos.md#contributing-to-docker-hub).
+repository to its registry*](../tutorials/dockerrepos.md#contributing-to-docker-hub).
 
 ## Format
 
@@ -115,12 +115,12 @@ The instruction is not case-sensitive. However, convention is for them to
 be UPPERCASE to distinguish them from arguments more easily.
 
 
-Docker runs instructions in a `Dockerfile` in order. **The first 
+Docker runs instructions in a `Dockerfile` in order. **The first
 instruction must be \`FROM\`** in order to specify the [*Base
-Image*](glossary.md#base-image) from which you are building. 
+Image*](glossary.md#base-image) from which you are building.
 
-Docker treats lines that *begin* with `#` as a comment, unless the line is 
-a valid [parser directive](builder.md#parser directives). A `#` marker anywhere
+Docker treats lines that *begin* with `#` as a comment, unless the line is
+a valid [parser directive](builder.md#parser-directives). A `#` marker anywhere
 else in a line is treated as an argument. This allows statements like:
 
 ```Dockerfile
@@ -132,20 +132,20 @@ Line continuation characters are not supported in comments.
 
 ## Parser directives
 
-Parser directives are optional, and affect the way in which subsequent lines 
+Parser directives are optional, and affect the way in which subsequent lines
 in a `Dockerfile` are handled. Parser directives do not add layers to the build,
 and will not be shown as a build step. Parser directives are written as a
 special type of comment in the form `# directive=value`. A single directive
 may only be used once.
 
-Once a comment, empty line or builder instruction has been processed, Docker 
+Once a comment, empty line or builder instruction has been processed, Docker
 no longer looks for parser directives. Instead it treats anything formatted
 as a parser directive as a comment and does not attempt to validate if it might
 be a parser directive. Therefore, all parser directives must be at the very
-top of a `Dockerfile`. 
+top of a `Dockerfile`.
 
 Parser directives are not case-sensitive. However, convention is for them to
-be lowercase. Convention is also to include a blank line following any 
+be lowercase. Convention is also to include a blank line following any
 parser directives. Line continuation characters are not supported in parser
 directives.
 
@@ -166,7 +166,7 @@ Invalid due to appearing twice:
 
 FROM ImageName
 ```
-    
+
 Treated as a comment due to appearing after a builder instruction:
 
 ```Dockerfile
@@ -190,10 +190,10 @@ a comment which is not a parser directive.
 ```Dockerfile
 # unknowndirective=value
 # knowndirective=value
-```    
-    
+```
+
 Non line-breaking whitespace is permitted in a parser directive. Hence, the
-following lines are all treated identically: 
+following lines are all treated identically:
 
 ```Dockerfile
 #directive=value
@@ -215,26 +215,26 @@ Or
 
     # escape=` (backtick)
 
-The `escape` directive sets the character used to escape characters in a 
-`Dockerfile`. If not specified, the default escape character is `\`. 
+The `escape` directive sets the character used to escape characters in a
+`Dockerfile`. If not specified, the default escape character is `\`.
 
 The escape character is used both to escape characters in a line, and to
 escape a newline. This allows a `Dockerfile` instruction to
 span multiple lines. Note that regardless of whether the `escape` parser
-directive is included in a `Dockerfile`, *escaping is not performed in 
-a `RUN` command, except at the end of a line.* 
+directive is included in a `Dockerfile`, *escaping is not performed in
+a `RUN` command, except at the end of a line.*
 
-Setting the escape character to `` ` `` is especially useful on 
-`Windows`, where `\` is the directory path separator. `` ` `` is consistent 
+Setting the escape character to `` ` `` is especially useful on
+`Windows`, where `\` is the directory path separator. `` ` `` is consistent
 with [Windows PowerShell](https://technet.microsoft.com/en-us/library/hh847755.aspx).
 
-Consider the following example which would fail in a non-obvious way on 
+Consider the following example which would fail in a non-obvious way on
 `Windows`. The second `\` at the end of the second line would be interpreted as an
-escape for the newline, instead of a target of the escape from the first `\`. 
+escape for the newline, instead of a target of the escape from the first `\`.
 Similarly, the `\` at the end of the third line would, assuming it was actually
 handled as an instruction, cause it be treated as a line continuation. The result
 of this dockerfile is that second and third lines are considered a single
-instruction: 
+instruction:
 
 ```Dockerfile
 FROM windowsservercore
@@ -250,18 +250,18 @@ Results in:
      ---> dbfee88ee9fd
     Step 2 : COPY testfile.txt c:RUN dir c:
     GetFileAttributesEx c:RUN: The system cannot find the file specified.
-    PS C:\John> 
+    PS C:\John>
 
 One solution to the above would be to use `/` as the target of both the `COPY`
 instruction, and `dir`. However, this syntax is, at best, confusing as it is not
 natural for paths on `Windows`, and at worst, error prone as not all commands on
 `Windows` support `/` as the path separator.
 
-By adding the `escape` parser directive, the following `Dockerfile` succeeds as 
+By adding the `escape` parser directive, the following `Dockerfile` succeeds as
 expected with the use of natural platform semantics for file paths on `Windows`:
 
     # escape=`
-    
+
     FROM windowsservercore
     COPY testfile.txt c:\
     RUN dir c:\
@@ -279,9 +279,9 @@ Results in:
      ---> Running in a5ff53ad6323
      Volume in drive C has no label.
      Volume Serial Number is 1440-27FA
-    
+
      Directory of c:\
-    
+
     03/25/2016  05:28 AM    <DIR>          inetpub
     03/25/2016  04:22 AM    <DIR>          PerfLogs
     04/22/2016  10:59 PM    <DIR>          Program Files
@@ -379,9 +379,13 @@ the working and the root directory.  For example, the patterns
 in the `foo` subdirectory of `PATH` or in the root of the git
 repository located at `URL`.  Neither excludes anything else.
 
+If a line in `.dockerignore` file starts with `#` in column 1, then this line is
+considered as a comment and is ignored before interpreted by the CLI.
+
 Here is an example `.dockerignore` file:
 
 ```
+# comment
     */temp*
     */*/temp*
     temp?
@@ -391,6 +395,7 @@ This file causes the following build behavior:
 
 | Rule           | Behavior                                                                                                                                                                     |
 |----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `# comment`    | Ignored.                 |
 | `*/temp*`      | Exclude files and directories whose names start with `temp` in any immediate subdirectory of the root.  For example, the plain file `/somedir/temporary.txt` is excluded, as is the directory `/somedir/temp`.                 |
 | `*/*/temp*`    | Exclude files and directories starting with `temp` from any subdirectory that is two levels below the root. For example, `/somedir/subdir/temporary.txt` is excluded. |
 | `temp?`        | Exclude files and directories in the root directory whose names are a one-character extension of `temp`.  For example, `/tempa` and `/tempb` are excluded.
@@ -469,7 +474,7 @@ Or
 The `FROM` instruction sets the [*Base Image*](glossary.md#base-image)
 for subsequent instructions. As such, a valid `Dockerfile` must have `FROM` as
 its first instruction. The image can be any valid image – it is especially easy
-to start by **pulling an image** from the [*Public Repositories*](../userguide/containers/dockerrepos.md).
+to start by **pulling an image** from the [*Public Repositories*](../tutorials/dockerrepos.md).
 
 - `FROM` must be the first non-comment instruction in the `Dockerfile`.
 
@@ -481,22 +486,16 @@ before each new `FROM` command.
 assumes a `latest` by default. The builder returns an error if it cannot match
 the `tag` value.
 
-## MAINTAINER
-
-    MAINTAINER <name>
-
-The `MAINTAINER` instruction allows you to set the *Author* field of the
-generated images.
-
 ## RUN
 
 RUN has 2 forms:
 
-- `RUN <command>` (*shell* form, the command is run in a shell - `/bin/sh -c`)
+- `RUN <command>` (*shell* form, the command is run in a shell, which by
+default is `/bin/sh -c` on Linux or `cmd /S /C` on Windows)
 - `RUN ["executable", "param1", "param2"]` (*exec* form)
 
 The `RUN` instruction will execute any commands in a new layer on top of the
-current image and commit the results. The resulting committed image will be
+current image and commit the results. The resulting comitted image will be
 used for the next step in the `Dockerfile`.
 
 Layering `RUN` instructions and generating commits conforms to the core
@@ -504,7 +503,10 @@ concepts of Docker where commits are cheap and containers can be created from
 any point in an image's history, much like source control.
 
 The *exec* form makes it possible to avoid shell string munging, and to `RUN`
-commands using a base image that does not contain `/bin/sh`.
+commands using a base image that does not contain the specified shell executable.
+
+The default shell for the *shell* form can be changed using the `SHELL`
+command.
 
 In the *shell* form you can use a `\` (backslash) to continue a single
 RUN instruction onto the next line. For example, consider these two lines:
@@ -532,10 +534,13 @@ RUN /bin/bash -c 'source $HOME/.bashrc ; echo $HOME'
 > `RUN [ "echo", "$HOME" ]` will not do variable substitution on `$HOME`.
 > If you want shell processing then either use the *shell* form or execute
 > a shell directly, for example: `RUN [ "sh", "-c", "echo $HOME" ]`.
+> When using the exec form and executing a shell directly, as in the case for
+> the shell form, it is the shell that is doing the environment variable
+> expansion, not docker.
 >
 > **Note**:
 > In the *JSON* form, it is necessary to escape backslashes. This is
-> particularly relevant on Windows where the backslash is the path seperator.
+> particularly relevant on Windows where the backslash is the path separator.
 > The following line would otherwise be treated as *shell* form due to not
 > being valid JSON, and fail in an unexpected way:
 > `RUN ["c:\windows\system32\tasklist.exe"]`
@@ -563,7 +568,7 @@ The cache for `RUN` instructions can be invalidated by `ADD` instructions. See
   For systems that have recent aufs version (i.e., `dirperm1` mount option can
   be set), docker will attempt to fix the issue automatically by mounting
   the layers with `dirperm1` option. More details on `dirperm1` option can be
-  found at [`aufs` man page](http://aufs.sourceforge.net/aufs3/man.html)
+  found at [`aufs` man page](https://github.com/sfjro/aufs3-linux/tree/aufs3.18/Documentation/filesystems/aufs)
 
   If your system doesn't have support for `dirperm1`, the issue describes a workaround.
 
@@ -597,7 +602,10 @@ instruction as well.
 > This means that normal shell processing does not happen. For example,
 > `CMD [ "echo", "$HOME" ]` will not do variable substitution on `$HOME`.
 > If you want shell processing then either use the *shell* form or execute
-> a shell directly, for example: `CMD [ "sh", "-c", "echo", "$HOME" ]`.
+> a shell directly, for example: `CMD [ "sh", "-c", "echo $HOME" ]`.
+> When using the exec form and executing a shell directly, as in the case for
+> the shell form, it is the shell that is doing the environment variable
+> expansion, not docker.
 
 When used in the shell or exec formats, the `CMD` instruction sets the command
 to be executed when running the image.
@@ -671,6 +679,20 @@ To view an image's labels, use the `docker inspect` command.
         "multi.label2": "value2",
         "other": "value3"
     },
+
+## MAINTAINER (deprecated)
+
+    MAINTAINER <name>
+
+The `MAINTAINER` instruction sets the *Author* field of the generated images. 
+The `LABEL` instruction is a much more flexible version of this and you should use
+it instead, as it enables setting any metadata you require, and can be viewed
+easily, for example with `docker inspect`. To set a label corresponding to the
+`MAINTAINER` field you could use:
+
+    LABEL maintainer "SvenDowideit@home.org.au"
+
+This will then be visible from `docker inspect` with the other labels.
 
 ## EXPOSE
 
@@ -1053,7 +1075,7 @@ user	0m 0.03s
 sys	0m 0.03s
 ```
 
-> **Note:** you can over ride the `ENTRYPOINT` setting using `--entrypoint`,
+> **Note:** you can override the `ENTRYPOINT` setting using `--entrypoint`,
 > but this can only set the binary to *exec* (no `sh -c` will be used).
 
 > **Note**:
@@ -1065,9 +1087,10 @@ sys	0m 0.03s
 > This means that normal shell processing does not happen. For example,
 > `ENTRYPOINT [ "echo", "$HOME" ]` will not do variable substitution on `$HOME`.
 > If you want shell processing then either use the *shell* form or execute
-> a shell directly, for example: `ENTRYPOINT [ "sh", "-c", "echo", "$HOME" ]`.
-> Variables that are defined in the `Dockerfile`using `ENV`, will be substituted by
-> the `Dockerfile` parser.
+> a shell directly, for example: `ENTRYPOINT [ "sh", "-c", "echo $HOME" ]`.
+> When using the exec form and executing a shell directly, as in the case for
+> the shell form, it is the shell that is doing the environment variable
+> expansion, not docker.
 
 ### Shell form ENTRYPOINT example
 
@@ -1145,12 +1168,12 @@ or for executing an ad-hoc command in a container.
 
 The table below shows what command is executed for different `ENTRYPOINT` / `CMD` combinations:
 
-|                                | No ENTRYPOINT              | ENTRYPOINT exec_entry p1_entry                            | ENTRYPOINT ["exec_entry", "p1_entry"]          |
-|--------------------------------|----------------------------|-----------------------------------------------------------|------------------------------------------------|
-| **No CMD**                     | *error, not allowed*       | /bin/sh -c exec_entry p1_entry                            | exec_entry p1_entry                            |
-| **CMD ["exec_cmd", "p1_cmd"]** | exec_cmd p1_cmd            | /bin/sh -c exec_entry p1_entry exec_cmd p1_cmd            | exec_entry p1_entry exec_cmd p1_cmd            |
-| **CMD ["p1_cmd", "p2_cmd"]**   | p1_cmd p2_cmd              | /bin/sh -c exec_entry p1_entry p1_cmd p2_cmd              | exec_entry p1_entry p1_cmd p2_cmd              |
-| **CMD exec_cmd p1_cmd**        | /bin/sh -c exec_cmd p1_cmd | /bin/sh -c exec_entry p1_entry /bin/sh -c exec_cmd p1_cmd | exec_entry p1_entry /bin/sh -c exec_cmd p1_cmd |
+|                                | No ENTRYPOINT              | ENTRYPOINT exec_entry p1_entry | ENTRYPOINT ["exec_entry", "p1_entry"]          |
+|--------------------------------|----------------------------|--------------------------------|------------------------------------------------|
+| **No CMD**                     | *error, not allowed*       | /bin/sh -c exec_entry p1_entry | exec_entry p1_entry                            |
+| **CMD ["exec_cmd", "p1_cmd"]** | exec_cmd p1_cmd            | /bin/sh -c exec_entry p1_entry | exec_entry p1_entry exec_cmd p1_cmd            |
+| **CMD ["p1_cmd", "p2_cmd"]**   | p1_cmd p2_cmd              | /bin/sh -c exec_entry p1_entry | exec_entry p1_entry p1_cmd p2_cmd              |
+| **CMD exec_cmd p1_cmd**        | /bin/sh -c exec_cmd p1_cmd | /bin/sh -c exec_entry p1_entry | exec_entry p1_entry /bin/sh -c exec_cmd p1_cmd |
 
 ## VOLUME
 
@@ -1162,7 +1185,7 @@ containers. The value can be a JSON array, `VOLUME ["/var/log/"]`, or a plain
 string with multiple arguments, such as `VOLUME /var/log` or `VOLUME /var/log
 /var/db`. For more information/examples and mounting instructions via the
 Docker client, refer to
-[*Share Directories via Volumes*](../userguide/containers/dockervolumes.md#mount-a-host-directory-as-a-data-volume)
+[*Share Directories via Volumes*](../tutorials/dockervolumes.md#mount-a-host-directory-as-a-data-volume)
 documentation.
 
 The `docker run` command initializes the newly created volume with any data
@@ -1200,7 +1223,7 @@ and for any `RUN`, `CMD` and `ENTRYPOINT` instructions that follow it in the
 
 The `WORKDIR` instruction sets the working directory for any `RUN`, `CMD`,
 `ENTRYPOINT`, `COPY` and `ADD` instructions that follow it in the `Dockerfile`.
-If the `WORKDIR` doesn't exist, it will be created even if its not used in any
+If the `WORKDIR` doesn't exist, it will be created even if it's not used in any
 subsequent `Dockerfile` instruction.
 
 It can be used multiple times in the one `Dockerfile`. If a relative path
@@ -1283,8 +1306,9 @@ subsequent line 3. The `USER` at line 4 evaluates to `what_user` as `user` is
 defined and the `what_user` value was passed on the command line. Prior to its definition by an
 `ARG` instruction, any use of a variable results in an empty string.
 
-> **Note:** It is not recommended to use build-time variables for
->  passing secrets like github keys, user credentials etc.
+> **Warning:** It is not recommended to use build-time variables for
+>  passing secrets like github keys, user credentials etc. Build-time variable
+>  values are visible to any user of the image with the `docker history` command.
 
 You can use an `ARG` or an `ENV` instruction to specify variables that are
 available to the `RUN` instruction. Environment variables defined using the
@@ -1464,11 +1488,189 @@ For example you might add something like this:
 
 ## STOPSIGNAL
 
-	STOPSIGNAL signal
+    STOPSIGNAL signal
 
 The `STOPSIGNAL` instruction sets the system call signal that will be sent to the container to exit.
 This signal can be a valid unsigned number that matches a position in the kernel's syscall table, for instance 9,
 or a signal name in the format SIGNAME, for instance SIGKILL.
+
+## HEALTHCHECK
+
+The `HEALTHCHECK` instruction has two forms:
+
+* `HEALTHCHECK [OPTIONS] CMD command` (check container health by running a command inside the container)
+* `HEALTHCHECK NONE` (disable any healthcheck inherited from the base image)
+
+The `HEALTHCHECK` instruction tells Docker how to test a container to check that
+it is still working. This can detect cases such as a web server that is stuck in
+an infinite loop and unable to handle new connections, even though the server
+process is still running.
+
+When a container has a healthcheck specified, it has a _health status_ in
+addition to its normal status. This status is initially `starting`. Whenever a
+health check passes, it becomes `healthy` (whatever state it was previously in).
+After a certain number of consecutive failures, it becomes `unhealthy`.
+
+The options that can appear before `CMD` are:
+
+* `--interval=DURATION` (default: `30s`)
+* `--timeout=DURATION` (default: `30s`)
+* `--retries=N` (default: `3`)
+
+The health check will first run **interval** seconds after the container is
+started, and then again **interval** seconds after each previous check completes.
+
+If a single run of the check takes longer than **timeout** seconds then the check
+is considered to have failed.
+
+It takes **retries** consecutive failures of the health check for the container
+to be considered `unhealthy`.
+
+There can only be one `HEALTHCHECK` instruction in a Dockerfile. If you list
+more than one then only the last `HEALTHCHECK` will take effect.
+
+The command after the `CMD` keyword can be either a shell command (e.g. `HEALTHCHECK
+CMD /bin/check-running`) or an _exec_ array (as with other Dockerfile commands;
+see e.g. `ENTRYPOINT` for details).
+
+The command's exit status indicates the health status of the container.
+The possible values are:
+
+- 0: success - the container is healthy and ready for use
+- 1: unhealthy - the container is not working correctly
+- 2: reserved - do not use this exit code
+
+For example, to check every five minutes or so that a web-server is able to
+serve the site's main page within three seconds:
+
+    HEALTHCHECK --interval=5m --timeout=3s \
+      CMD curl -f http://localhost/ || exit 1
+
+To help debug failing probes, any output text (UTF-8 encoded) that the command writes
+on stdout or stderr will be stored in the health status and can be queried with
+`docker inspect`. Such output should be kept short (only the first 4096 bytes
+are stored currently).
+
+When the health status of a container changes, a `health_status` event is
+generated with the new status.
+
+The `HEALTHCHECK` feature was added in Docker 1.12.
+
+
+## SHELL
+
+    SHELL ["executable", "parameters"]
+
+The `SHELL` instruction allows the default shell used for the *shell* form of
+commands to be overridden. The default shell on Linux is `["/bin/sh", "-c"]`, and on
+Windows is `["cmd", "/S", "/C"]`. The `SHELL` instruction *must* be written in JSON
+form in a Dockerfile.
+
+The `SHELL` instruction is particularly useful on Windows where there are
+two commonly used and quite different native shells: `cmd` and `powershell`, as
+well as alternate shells available including `sh`.
+
+The `SHELL` instruction can appear multiple times. Each `SHELL` instruction overrides
+all previous `SHELL` instructions, and affects all subsequent instructions. For example:
+
+    FROM windowsservercore
+
+    # Executed as cmd /S /C echo default
+    RUN echo default
+
+    # Executed as cmd /S /C powershell -command Write-Host default
+    RUN powershell -command Write-Host default
+
+    # Executed as powershell -command Write-Host hello
+    SHELL ["powershell", "-command"]
+    RUN Write-Host hello
+
+    # Executed as cmd /S /C echo hello
+    SHELL ["cmd", "/S"", "/C"]
+    RUN echo hello
+
+The following instructions can be affected by the `SHELL` instruction when the
+*shell* form of them is used in a Dockerfile: `RUN`, `CMD` and `ENTRYPOINT`.
+
+The following example is a common pattern found on Windows which can be
+streamlined by using the `SHELL` instruction:
+
+    ...
+    RUN powershell -command Execute-MyCmdlet -param1 "c:\foo.txt"
+    ...
+
+The command invoked by docker will be:
+
+    cmd /S /C powershell -command Execute-MyCmdlet -param1 "c:\foo.txt"
+
+ This is inefficient for two reasons. First, there is an un-necessary cmd.exe command
+ processor (aka shell) being invoked. Second, each `RUN` instruction in the *shell*
+ form requires an extra `powershell -command` prefixing the command.
+
+To make this more efficient, one of two mechanisms can be employed. One is to
+use the JSON form of the RUN command such as:
+
+    ...
+    RUN ["powershell", "-command", "Execute-MyCmdlet", "-param1 \"c:\\foo.txt\""]
+    ...
+
+While the JSON form is unambiguous and does not use the un-necessary cmd.exe,
+it does require more verbosity through double-quoting and escaping. The alternate
+mechanism is to use the `SHELL` instruction and the *shell* form,
+making a more natural syntax for Windows users, especially when combined with
+the `escape` parser directive:
+
+    # escape=`
+
+    FROM windowsservercore
+    SHELL ["powershell","-command"]
+    RUN New-Item -ItemType Directory C:\Example
+    ADD Execute-MyCmdlet.ps1 c:\example\
+    RUN c:\example\Execute-MyCmdlet -sample 'hello world'
+
+Resulting in:
+
+    PS E:\docker\build\shell> docker build -t shell .
+    Sending build context to Docker daemon 3.584 kB
+    Step 1 : FROM windowsservercore
+     ---> 5bc36a335344
+    Step 2 : SHELL powershell -command
+     ---> Running in 87d7a64c9751
+     ---> 4327358436c1
+    Removing intermediate container 87d7a64c9751
+    Step 3 : RUN New-Item -ItemType Directory C:\Example
+     ---> Running in 3e6ba16b8df9
+
+
+        Directory: C:\
+
+
+    Mode                LastWriteTime         Length Name
+    ----                -------------         ------ ----
+    d-----         6/2/2016   2:59 PM                Example
+
+
+     ---> 1f1dfdcec085
+    Removing intermediate container 3e6ba16b8df9
+    Step 4 : ADD Execute-MyCmdlet.ps1 c:\example\
+     ---> 6770b4c17f29
+    Removing intermediate container b139e34291dc
+    Step 5 : RUN c:\example\Execute-MyCmdlet -sample 'hello world'
+     ---> Running in abdcf50dfd1f
+    Hello from Execute-MyCmdlet.ps1 - passed hello world
+     ---> ba0e25255fda
+    Removing intermediate container abdcf50dfd1f
+    Successfully built ba0e25255fda
+    PS E:\docker\build\shell>
+
+The `SHELL` instruction could also be used to modify the way in which
+a shell operates. For example, using `SHELL cmd /S /C /V:ON|OFF` on Windows, delayed
+environment variable expansion semantics could be modified.
+
+The `SHELL` instruction can also be used on Linux should an alternate shell be
+required such `zsh`, `csh`, `tcsh` and others.
+
+The `SHELL` feature was added in Docker 1.12.
 
 ## Dockerfile examples
 
@@ -1481,8 +1683,6 @@ something more realistic, take a look at the list of [Dockerization examples](..
 # VERSION               0.0.1
 
 FROM      ubuntu
-MAINTAINER Victor Vieux <victor@docker.com>
-
 LABEL Description="This image is used to start the foobar executable" Vendor="ACME Products" Version="1.0"
 RUN apt-get update && apt-get install -y inotify-tools nginx apache2 openssh-server
 ```

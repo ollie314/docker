@@ -10,14 +10,17 @@ parent = "smn_cli"
 
 # attach
 
-    Usage: docker attach [OPTIONS] CONTAINER
+```markdown
+Usage: docker attach [OPTIONS] CONTAINER
 
-    Attach to a running container
+Attach to a running container
 
-      --detach-keys="<sequence>"       Set up escape key sequence
-      --help                           Print usage
-      --no-stdin                       Do not attach STDIN
-      --sig-proxy=true                 Proxy all received signals to the process
+Options:
+      --detach-keys string   Override the key sequence for detaching a container
+      --help                 Print usage
+      --no-stdin             Do not attach STDIN
+      --sig-proxy            Proxy all received signals to the process (default true)
+```
 
 The `docker attach` command allows you to attach to a running container using
 the container's ID or name, either to view its ongoing output or to control it
@@ -51,9 +54,9 @@ foreground over a slow client connection. Instead, users should use the
 
 ## Override the detach sequence
 
-If you want, you can configure a override the Docker key sequence for detach.
-This is is useful if the Docker default sequence conflicts with key squence you
-use for other applications. There are two ways to defines a your own detach key
+If you want, you can configure an override the Docker key sequence for detach.
+This is useful if the Docker default sequence conflicts with key sequence you
+use for other applications. There are two ways to define your own detach key
 sequence, as a per-container override or as a configuration property on  your
 entire configuration.
 
@@ -116,7 +119,7 @@ process is returned by the `docker attach` command to its caller too:
     $ docker run --name test -d -it debian
     275c44472aebd77c926d4527885bb09f2f6db21d878c75f0a1c212c03d3bcfab
     $ docker attach test
-    $$ exit 13
+    root@f38c87f2a42d:/# exit 13
     exit
     $ echo $?
     13

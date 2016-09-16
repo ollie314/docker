@@ -10,13 +10,16 @@ parent = "smn_cli"
 
 # pull
 
-    Usage: docker pull [OPTIONS] NAME[:TAG] | [REGISTRY_HOST[:REGISTRY_PORT]/]NAME[:TAG]
+```markdown
+Usage:  docker pull [OPTIONS] NAME[:TAG|@DIGEST]
 
-    Pull an image or a repository from the registry
+Pull an image or a repository from a registry
 
-      -a, --all-tags                Download all tagged images in the repository
-      --disable-content-trust=true  Skip image verification
-      --help                        Print usage
+Options:
+  -a, --all-tags                Download all tagged images in the repository
+      --disable-content-trust   Skip image verification (default true)
+      --help                    Print usage
+```
 
 Most of your images will be created on top of a base image from the
 [Docker Hub](https://hub.docker.com) registry.
@@ -29,7 +32,7 @@ use `docker pull`.
 
 ## Proxy configuration
 
-If you are behind a HTTP proxy server, for example in corporate settings,
+If you are behind an HTTP proxy server, for example in corporate settings,
 before open a connect to registry, you may need to configure the Docker
 daemon's proxy settings, using the `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`
 environment variables. To set these environment variables on a host using
@@ -162,7 +165,7 @@ MAINTAINER some maintainer <maintainer@example.com>
 
 ## Pulling from a different registry
 
-By default, `docker pull` pulls images from Docker Hub. It is also possible to
+By default, `docker pull` pulls images from [Docker Hub](https://hub.docker.com). It is also possible to
 manually specify the path of a registry to pull from. For example, if you have
 set up a local registry, you can specify its path to pull from it. A registry
 path is similar to a URL, but does not contain a protocol specifier (`https://`).

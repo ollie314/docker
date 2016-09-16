@@ -1,5 +1,7 @@
 package networkdb
 
+//go:generate protoc -I.:../Godeps/_workspace/src/github.com/gogo/protobuf  --gogo_out=import_path=github.com/docker/libnetwork/networkdb,Mgogoproto/gogo.proto=github.com/gogo/protobuf/gogoproto:. networkdb.proto
+
 import (
 	"fmt"
 	"strings"
@@ -75,6 +77,9 @@ type NetworkDB struct {
 	// List of all tickers which needed to be stopped when
 	// cleaning up.
 	tickers []*time.Ticker
+
+	// Reference to the memberlist's keyring to add & remove keys
+	keyring *memberlist.Keyring
 }
 
 // network describes the node/network attachment.
@@ -102,13 +107,17 @@ type Config struct {
 	// NodeName is the cluster wide unique name for this node.
 	NodeName string
 
-	// BindAddr is the local node's IP address that we bind to for
+	// AdvertiseAddr is the node's IP address that we advertise for
 	// cluster communication.
-	BindAddr string
+	AdvertiseAddr string
 
 	// BindPort is the local node's port to which we bind to for
 	// cluster communication.
 	BindPort int
+
+	// Keys to be added to the Keyring of the memberlist. Key at index
+	// 0 is the primary key
+	Keys [][]byte
 }
 
 // entry defines a table entry
@@ -206,7 +215,7 @@ func (nDB *NetworkDB) CreateEntry(tname, nid, key string, value []byte) error {
 		value: value,
 	}
 
-	if err := nDB.sendTableEvent(tableEntryCreate, nid, tname, key, entry); err != nil {
+	if err := nDB.sendTableEvent(TableEventTypeCreate, nid, tname, key, entry); err != nil {
 		return fmt.Errorf("cannot send table create event: %v", err)
 	}
 
@@ -234,7 +243,7 @@ func (nDB *NetworkDB) UpdateEntry(tname, nid, key string, value []byte) error {
 		value: value,
 	}
 
-	if err := nDB.sendTableEvent(tableEntryUpdate, nid, tname, key, entry); err != nil {
+	if err := nDB.sendTableEvent(TableEventTypeUpdate, nid, tname, key, entry); err != nil {
 		return fmt.Errorf("cannot send table update event: %v", err)
 	}
 
@@ -264,7 +273,7 @@ func (nDB *NetworkDB) DeleteEntry(tname, nid, key string) error {
 		deleteTime: time.Now(),
 	}
 
-	if err := nDB.sendTableEvent(tableEntryDelete, nid, tname, key, entry); err != nil {
+	if err := nDB.sendTableEvent(TableEventTypeDelete, nid, tname, key, entry); err != nil {
 		return fmt.Errorf("cannot send table delete event: %v", err)
 	}
 
@@ -275,6 +284,23 @@ func (nDB *NetworkDB) DeleteEntry(tname, nid, key string) error {
 
 	nDB.broadcaster.Write(makeEvent(opDelete, tname, nid, key, value))
 	return nil
+}
+
+func (nDB *NetworkDB) deleteNetworkNodeEntries(deletedNode string) {
+	nDB.Lock()
+	for nid, nodes := range nDB.networkNodes {
+		updatedNodes := make([]string, 0, len(nodes))
+		for _, node := range nodes {
+			if node == deletedNode {
+				continue
+			}
+
+			updatedNodes = append(updatedNodes, node)
+		}
+
+		nDB.networkNodes[nid] = updatedNodes
+	}
+	nDB.Unlock()
 }
 
 func (nDB *NetworkDB) deleteNodeTableEntries(node string) {
@@ -300,6 +326,8 @@ func (nDB *NetworkDB) deleteNodeTableEntries(node string) {
 
 		nDB.indexes[byTable].Insert(fmt.Sprintf("/%s/%s/%s", tname, nid, key), entry)
 		nDB.indexes[byNetwork].Insert(fmt.Sprintf("/%s/%s/%s", nid, tname, key), entry)
+
+		nDB.broadcaster.Write(makeEvent(opDelete, tname, nid, key, entry.value))
 		return false
 	})
 	nDB.Unlock()
@@ -345,19 +373,23 @@ func (nDB *NetworkDB) JoinNetwork(nid string) error {
 	nodeNetworks[nid] = &network{id: nid, ltime: ltime}
 	nodeNetworks[nid].tableBroadcasts = &memberlist.TransmitLimitedQueue{
 		NumNodes: func() int {
-			return len(nDB.networkNodes[nid])
+			nDB.RLock()
+			num := len(nDB.networkNodes[nid])
+			nDB.RUnlock()
+			return num
 		},
 		RetransmitMult: 4,
 	}
 	nDB.networkNodes[nid] = append(nDB.networkNodes[nid], nDB.config.NodeName)
+	networkNodes := nDB.networkNodes[nid]
 	nDB.Unlock()
 
-	if err := nDB.sendNetworkEvent(nid, networkJoin, ltime); err != nil {
+	if err := nDB.sendNetworkEvent(nid, NetworkEventTypeJoin, ltime); err != nil {
 		return fmt.Errorf("failed to send leave network event for %s: %v", nid, err)
 	}
 
 	logrus.Debugf("%s: joined network %s", nDB.config.NodeName, nid)
-	if _, err := nDB.bulkSync(nid, true); err != nil {
+	if _, err := nDB.bulkSync(nid, networkNodes, true); err != nil {
 		logrus.Errorf("Error bulk syncing while joining network %s: %v", nid, err)
 	}
 
@@ -368,15 +400,46 @@ func (nDB *NetworkDB) JoinNetwork(nid string) error {
 // this event across the cluster. This triggers this node leaving the
 // sub-cluster of this network and as a result will no longer
 // participate in the network-scoped gossip and bulk sync for this
-// network.
+// network. Also remove all the table entries for this network from
+// networkdb
 func (nDB *NetworkDB) LeaveNetwork(nid string) error {
 	ltime := nDB.networkClock.Increment()
-	if err := nDB.sendNetworkEvent(nid, networkLeave, ltime); err != nil {
+	if err := nDB.sendNetworkEvent(nid, NetworkEventTypeLeave, ltime); err != nil {
 		return fmt.Errorf("failed to send leave network event for %s: %v", nid, err)
 	}
 
 	nDB.Lock()
 	defer nDB.Unlock()
+	var (
+		paths   []string
+		entries []*entry
+	)
+
+	nwWalker := func(path string, v interface{}) bool {
+		entry, ok := v.(*entry)
+		if !ok {
+			return false
+		}
+		paths = append(paths, path)
+		entries = append(entries, entry)
+		return false
+	}
+
+	nDB.indexes[byNetwork].WalkPrefix(fmt.Sprintf("/%s", nid), nwWalker)
+	for _, path := range paths {
+		params := strings.Split(path[1:], "/")
+		tname := params[1]
+		key := params[2]
+
+		if _, ok := nDB.indexes[byTable].Delete(fmt.Sprintf("/%s/%s/%s", tname, nid, key)); !ok {
+			logrus.Errorf("Could not delete entry in table %s with network id %s and key %s as it does not exist", tname, nid, key)
+		}
+
+		if _, ok := nDB.indexes[byNetwork].Delete(fmt.Sprintf("/%s/%s/%s", nid, tname, key)); !ok {
+			logrus.Errorf("Could not delete entry in network %s with table name %s and key %s as it does not exist", nid, tname, key)
+		}
+	}
+
 	nodeNetworks, ok := nDB.networks[nDB.config.NodeName]
 	if !ok {
 		return fmt.Errorf("could not find self node for network %s while trying to leave", nid)
@@ -390,6 +453,20 @@ func (nDB *NetworkDB) LeaveNetwork(nid string) error {
 	n.ltime = ltime
 	n.leaving = true
 	return nil
+}
+
+// addNetworkNode adds the node to the list of nodes which participate
+// in the passed network only if it is not already present. Caller
+// should hold the NetworkDB lock while calling this
+func (nDB *NetworkDB) addNetworkNode(nid string, nodeName string) {
+	nodes := nDB.networkNodes[nid]
+	for _, node := range nodes {
+		if node == nodeName {
+			return
+		}
+	}
+
+	nDB.networkNodes[nid] = append(nDB.networkNodes[nid], nodeName)
 }
 
 // Deletes the node from the list of nodes which participate in the

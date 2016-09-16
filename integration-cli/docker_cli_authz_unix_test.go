@@ -76,7 +76,6 @@ func (s *DockerAuthzSuite) TearDownTest(c *check.C) {
 func (s *DockerAuthzSuite) SetUpSuite(c *check.C) {
 	mux := http.NewServeMux()
 	s.server = httptest.NewServer(mux)
-	c.Assert(s.server, check.NotNil, check.Commentf("Failed to start a HTTP Server"))
 
 	mux.HandleFunc("/Plugin.Activate", func(w http.ResponseWriter, r *http.Request) {
 		b, err := json.Marshal(plugins.Manifest{Implements: []string{authorization.AuthZApiImplements}})
@@ -327,7 +326,7 @@ func (s *DockerAuthzSuite) TestAuthZPluginAllowEventStream(c *check.C) {
 
 	startTime := strconv.FormatInt(daemonTime(c).Unix(), 10)
 	// Add another command to to enable event pipelining
-	eventsCmd := exec.Command(s.d.cmd.Path, "--host", s.d.sock(), "events", "--since", startTime)
+	eventsCmd := exec.Command(dockerBinary, "--host", s.d.sock(), "events", "--since", startTime)
 	stdout, err := eventsCmd.StdoutPipe()
 	if err != nil {
 		c.Assert(err, check.IsNil)
@@ -442,6 +441,25 @@ func (s *DockerAuthzSuite) TestAuthZPluginEnsureLoadImportWorking(c *check.C) {
 	c.Assert(err, check.IsNil, check.Commentf(out))
 	out, err = s.d.Cmd("import", exportedImagePath)
 	c.Assert(err, check.IsNil, check.Commentf(out))
+}
+
+func (s *DockerAuthzSuite) TestAuthZPluginHeader(c *check.C) {
+	c.Assert(s.d.Start("--debug", "--authorization-plugin="+testAuthZPlugin), check.IsNil)
+	s.ctrl.reqRes.Allow = true
+	s.ctrl.resRes.Allow = true
+	c.Assert(s.d.LoadBusybox(), check.IsNil)
+
+	daemonURL, err := url.Parse(s.d.sock())
+
+	conn, err := net.DialTimeout(daemonURL.Scheme, daemonURL.Path, time.Second*10)
+	c.Assert(err, check.IsNil)
+	client := httputil.NewClientConn(conn, nil)
+	req, err := http.NewRequest("GET", "/version", nil)
+	c.Assert(err, check.IsNil)
+	resp, err := client.Do(req)
+
+	c.Assert(err, check.IsNil)
+	c.Assert(resp.Header["Content-Type"][0], checker.Equals, "application/json")
 }
 
 // assertURIRecorded verifies that the given URI was sent and recorded in the authz plugin

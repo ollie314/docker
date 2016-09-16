@@ -16,7 +16,7 @@ func platformConstructExitStatus(e libcontainerd.StateInfo) *container.ExitStatu
 
 // postRunProcessing perfoms any processing needed on the container after it has stopped.
 func (daemon *Daemon) postRunProcessing(container *container.Container, e libcontainerd.StateInfo) error {
-	if e.UpdatePending {
+	if e.ExitCode == 0 && e.UpdatePending {
 		spec, err := daemon.createSpec(container)
 		if err != nil {
 			return err
@@ -28,7 +28,8 @@ func (daemon *Daemon) postRunProcessing(container *container.Container, e libcon
 
 		// Create a new servicing container, which will start, complete the update, and merge back the
 		// results if it succeeded, all as part of the below function call.
-		if err := daemon.containerd.Create((container.ID + "_servicing"), *spec, servicingOption); err != nil {
+		if err := daemon.containerd.Create((container.ID + "_servicing"), "", "", *spec, servicingOption); err != nil {
+			container.SetExitCode(-1)
 			return fmt.Errorf("Post-run update servicing failed: %s", err)
 		}
 	}

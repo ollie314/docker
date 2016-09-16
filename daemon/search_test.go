@@ -7,9 +7,9 @@ import (
 
 	"golang.org/x/net/context"
 
+	"github.com/docker/docker/api/types"
+	registrytypes "github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/registry"
-	"github.com/docker/engine-api/types"
-	registrytypes "github.com/docker/engine-api/types/registry"
 )
 
 type FakeService struct {
@@ -21,7 +21,7 @@ type FakeService struct {
 	results []registrytypes.SearchResult
 }
 
-func (s *FakeService) Search(ctx context.Context, term string, authConfig *types.AuthConfig, userAgent string, headers map[string][]string) (*registrytypes.SearchResults, error) {
+func (s *FakeService) Search(ctx context.Context, term string, limit int, authConfig *types.AuthConfig, userAgent string, headers map[string][]string) (*registrytypes.SearchResults, error) {
 	if s.shouldReturnError {
 		return nil, fmt.Errorf("Search unknown error")
 	}
@@ -81,7 +81,7 @@ func TestSearchRegistryForImagesErrors(t *testing.T) {
 				shouldReturnError: e.shouldReturnError,
 			},
 		}
-		_, err := daemon.SearchRegistryForImages(context.Background(), e.filtersArgs, "term", nil, map[string][]string{})
+		_, err := daemon.SearchRegistryForImages(context.Background(), e.filtersArgs, "term", 25, nil, map[string][]string{})
 		if err == nil {
 			t.Errorf("%d: expected an error, got nothing", index)
 		}
@@ -328,7 +328,7 @@ func TestSearchRegistryForImages(t *testing.T) {
 				results: s.registryResults,
 			},
 		}
-		results, err := daemon.SearchRegistryForImages(context.Background(), s.filtersArgs, term, nil, map[string][]string{})
+		results, err := daemon.SearchRegistryForImages(context.Background(), s.filtersArgs, term, 25, nil, map[string][]string{})
 		if err != nil {
 			t.Errorf("%d: %v", index, err)
 		}
@@ -347,6 +347,7 @@ func TestSearchRegistryForImages(t *testing.T) {
 					expectedResult.IsOfficial == result.IsOfficial &&
 					expectedResult.StarCount == result.StarCount {
 					found = true
+					break
 				}
 			}
 			if !found {

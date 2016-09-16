@@ -61,7 +61,6 @@ func (s *DockerSuite) TestDiffEnsureDefaultDevs(c *check.C) {
 		"A /dev/mqueue":  true,
 		"A /dev/kmsg":    true,
 		"A /dev/fd":      true,
-		"A /dev/fuse":    true,
 		"A /dev/ptmx":    true,
 		"A /dev/null":    true,
 		"A /dev/random":  true,
@@ -83,5 +82,5 @@ func (s *DockerSuite) TestDiffEnsureDefaultDevs(c *check.C) {
 func (s *DockerSuite) TestDiffEmptyArgClientError(c *check.C) {
 	out, _, err := dockerCmdWithError("diff", "")
 	c.Assert(err, checker.NotNil)
-	c.Assert(strings.TrimSpace(out), checker.Equals, "Container name cannot be empty")
+	c.Assert(strings.TrimSpace(out), checker.Contains, "Container name cannot be empty")
 }

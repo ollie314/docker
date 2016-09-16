@@ -7,9 +7,9 @@ import (
 	"os"
 	"path/filepath"
 
+	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/utils"
 	"github.com/docker/docker/volume"
-	containertypes "github.com/docker/engine-api/types/container"
 )
 
 // Container holds fields specific to the Windows implementation. See
@@ -37,7 +37,7 @@ func (container *Container) CreateDaemonEnvironment(linkedEnv []string) []string
 	return utils.ReplaceOrAppendEnvValues(linkedEnv, container.Config.Env)
 }
 
-// UnmountIpcMounts unmount Ipc related mounts.
+// UnmountIpcMounts unmounts Ipc related mounts.
 // This is a NOOP on windows.
 func (container *Container) UnmountIpcMounts(unmount func(pth string) error) {
 }
@@ -54,7 +54,8 @@ func (container *Container) UnmountVolumes(forceSyscall bool, volumeEventLog fun
 
 // TmpfsMounts returns the list of tmpfs mounts
 func (container *Container) TmpfsMounts() []Mount {
-	return nil
+	var mounts []Mount
+	return mounts
 }
 
 // UpdateContainer updates configuration of a container
@@ -71,6 +72,9 @@ func (container *Container) UpdateContainer(hostConfig *containertypes.HostConfi
 	}
 	// update HostConfig of container
 	if hostConfig.RestartPolicy.Name != "" {
+		if container.HostConfig.AutoRemove && !hostConfig.RestartPolicy.IsNone() {
+			return fmt.Errorf("Restart policy cannot be updated because AutoRemove is enabled for the container")
+		}
 		container.HostConfig.RestartPolicy = hostConfig.RestartPolicy
 	}
 	return nil

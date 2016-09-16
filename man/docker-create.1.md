@@ -43,6 +43,7 @@ docker-create - Create a new container
 [**-l**|**--label**[=*[]*]]
 [**--label-file**[=*[]*]]
 [**--link**[=*[]*]]
+[**--link-local-ip**[=*[]*]]
 [**--log-driver**[=*[]*]]
 [**--log-opt**[=*[]*]]
 [**-m**|**--memory**[=*MEMORY*]]
@@ -51,8 +52,8 @@ docker-create - Create a new container
 [**--memory-swap**[=*LIMIT*]]
 [**--memory-swappiness**[=*MEMORY-SWAPPINESS*]]
 [**--name**[=*NAME*]]
-[**--net**[=*"bridge"*]]
-[**--net-alias**[=*[]*]]
+[**--network-alias**[=*[]*]]
+[**--network**[=*"bridge"*]]
 [**--oom-kill-disable**]
 [**--oom-score-adj**[=*0*]]
 [**-P**|**--publish-all**]
@@ -63,6 +64,7 @@ docker-create - Create a new container
 [**--privileged**]
 [**--read-only**]
 [**--restart**[=*RESTART*]]
+[**--rm**]
 [**--security-opt**[=*[]*]]
 [**--storage-opt**[=*[]*]]
 [**--stop-signal**[=*SIGNAL*]]
@@ -220,8 +222,11 @@ millions of trillions.
    Add link to another container in the form of <name or id>:alias or just
    <name or id> in which case the alias will match the name.
 
+**--link-local-ip**=[]
+   Add one or more link-local IPv4/IPv6 addresses to the container's interface
+
 **--log-driver**="*json-file*|*syslog*|*journald*|*gelf*|*fluentd*|*awslogs*|*splunk*|*etwlogs*|*gcplogs*|*none*"
-  Logging driver for container. Default is defined by daemon `--log-driver` flag.
+  Logging driver for the container. Default is defined by daemon `--log-driver` flag.
   **Warning**: the `docker logs` command works only for the `json-file` and
   `journald` logging drivers.
 
@@ -272,7 +277,7 @@ unit, `b` is used. Set LIMIT to `-1` to enable unlimited swap.
                                'host': use the Docker host network stack.  Note: the host mode gives the container full access to local system services such as D-bus and is therefore considered insecure.
                                '<network-name>|<network-id>': connect to a user-defined network
 
-**--net-alias**=[]
+**--network-alias**=[]
    Add network-scoped alias for the container
 
 **--oom-kill-disable**=*true*|*false*
@@ -313,6 +318,9 @@ unit, `b` is used. Set LIMIT to `-1` to enable unlimited swap.
 **--restart**="*no*"
    Restart policy to apply when a container exits (no, on-failure[:max-retry], always, unless-stopped).
 
+**--rm**=*true*|*false*
+   Automatically remove the container when it exits. The default is *false*.
+
 **--shm-size**=""
    Size of `/dev/shm`. The format is `<number><unit>`. `number` must be greater than `0`.
    Unit is optional and can be `b` (bytes), `k` (kilobytes), `m` (megabytes), or `g` (gigabytes). If you omit the unit, the system uses bytes.
@@ -336,7 +344,7 @@ unit, `b` is used. Set LIMIT to `-1` to enable unlimited swap.
    $ docker create -it --storage-opt size=120G fedora /bin/bash
 
    This (size) will allow to set the container rootfs size to 120G at creation time. User cannot pass a size less than the Default BaseFS Size.
-   This option is only available for the `devicemapper`, `btrfs` and `zfs` graphrivers.
+   This option is only available for the `devicemapper`, `btrfs`, and `zfs` graph drivers.
   
 **--stop-signal**=*SIGTERM*
   Signal to stop a container. Default is SIGTERM.
@@ -371,7 +379,12 @@ any options, the systems uses the following options:
 `rw,noexec,nosuid,nodev,size=65536k`.
 
 **-u**, **--user**=""
-   Username or UID
+   Sets the username or UID used and optionally the groupname or GID for the specified command.
+
+   The followings examples are all valid:
+   --user [user | user:group | uid | uid:gid | user:gid | uid:group ]
+
+   Without this argument root user will be used in the container by default.
 
 **--ulimit**=[]
    Ulimit options

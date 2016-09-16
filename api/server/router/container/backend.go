@@ -6,10 +6,10 @@ import (
 
 	"golang.org/x/net/context"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/engine-api/types"
-	"github.com/docker/engine-api/types/container"
 )
 
 // execBackend includes functions to implement to provide exec functionality.
@@ -17,7 +17,7 @@ type execBackend interface {
 	ContainerExecCreate(name string, config *types.ExecConfig) (string, error)
 	ContainerExecInspect(id string) (*backend.ExecInspect, error)
 	ContainerExecResize(name string, height, width int) error
-	ContainerExecStart(name string, stdin io.ReadCloser, stdout io.Writer, stderr io.Writer) error
+	ContainerExecStart(ctx context.Context, name string, stdin io.ReadCloser, stdout io.Writer, stderr io.Writer) error
 	ExecExists(name string) (bool, error)
 }
 
@@ -32,17 +32,17 @@ type copyBackend interface {
 
 // stateBackend includes functions to implement to provide container state lifecycle functionality.
 type stateBackend interface {
-	ContainerCreate(types.ContainerCreateConfig) (types.ContainerCreateResponse, error)
+	ContainerCreate(config types.ContainerCreateConfig, validateHostname bool) (types.ContainerCreateResponse, error)
 	ContainerKill(name string, sig uint64) error
 	ContainerPause(name string) error
 	ContainerRename(oldName, newName string) error
 	ContainerResize(name string, height, width int) error
 	ContainerRestart(name string, seconds int) error
 	ContainerRm(name string, config *types.ContainerRmConfig) error
-	ContainerStart(name string, hostConfig *container.HostConfig) error
+	ContainerStart(name string, hostConfig *container.HostConfig, validateHostname bool, checkpoint string) error
 	ContainerStop(name string, seconds int) error
 	ContainerUnpause(name string) error
-	ContainerUpdate(name string, hostConfig *container.HostConfig) ([]string, error)
+	ContainerUpdate(name string, hostConfig *container.HostConfig, validateHostname bool) (types.ContainerUpdateResponse, error)
 	ContainerWait(name string, timeout time.Duration) (int, error)
 }
 

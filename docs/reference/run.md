@@ -9,15 +9,6 @@ weight=-80
 +++
 <![end-metadata]-->
 
-<!-- TODO (@thaJeztah) define more flexible table/td classes -->
-<style>
-table .no-wrap {
-    white-space: nowrap;
-}
-table code {
-    white-space: nowrap;
-}
-</style>
 # Docker run reference
 
 Docker runs processes in isolated containers. A container is a process
@@ -190,6 +181,11 @@ Images using the v2 or later image format have a content-addressable identifier
 called a digest. As long as the input used to generate the image is unchanged,
 the digest value is predictable and referenceable.
 
+The following example runs a container from the `alpine` image with the 
+`sha256:9cacb71397b640eca97488cf08582ae4e4068513101088e9f96c9814bfda95e0` digest:
+
+    $ docker run alpine@sha256:9cacb71397b640eca97488cf08582ae4e4068513101088e9f96c9814bfda95e0 date
+
 ## PID settings (--pid)
 
     --pid=""  : Set the PID (Process) Namespace mode for the container,
@@ -254,7 +250,7 @@ $ strace -p 1
 
 The UTS namespace is for setting the hostname and the domain that is visible
 to running processes in that namespace.  By default, all containers, including
-those with `--net=host`, have their own UTS namespace.  The `host` setting will
+those with `--network=host`, have their own UTS namespace.  The `host` setting will
 result in the container using the same UTS namespace as the host.  Note that
 `--hostname` is invalid in `host` UTS mode.
 
@@ -283,22 +279,23 @@ of the containers.
 
 ## Network settings
 
-    --dns=[]         : Set custom dns servers for the container
-    --net="bridge"   : Connect a container to a network
-                        'bridge': create a network stack on the default Docker bridge
-                        'none': no networking
-                        'container:<name|id>': reuse another container's network stack
-                        'host': use the Docker host network stack
-                        '<network-name>|<network-id>': connect to a user-defined network
-    --net-alias=[]   : Add network-scoped alias for the container
-    --add-host=""    : Add a line to /etc/hosts (host:IP)
-    --mac-address="" : Sets the container's Ethernet device's MAC address
-    --ip=""          : Sets the container's Ethernet device's IPv4 address
-    --ip6=""         : Sets the container's Ethernet device's IPv6 address
+    --dns=[]           : Set custom dns servers for the container
+    --network="bridge" : Connect a container to a network
+                          'bridge': create a network stack on the default Docker bridge
+                          'none': no networking
+                          'container:<name|id>': reuse another container's network stack
+                          'host': use the Docker host network stack
+                          '<network-name>|<network-id>': connect to a user-defined network
+    --network-alias=[] : Add network-scoped alias for the container
+    --add-host=""      : Add a line to /etc/hosts (host:IP)
+    --mac-address=""   : Sets the container's Ethernet device's MAC address
+    --ip=""            : Sets the container's Ethernet device's IPv4 address
+    --ip6=""           : Sets the container's Ethernet device's IPv6 address
+    --link-local-ip=[] : Sets one or more container's Ethernet device's link local IPv4/IPv6 addresses
 
 By default, all containers have networking enabled and they can make any
 outgoing connections. The operator can completely disable networking
-with `docker run --net none` which disables all incoming and outgoing
+with `docker run --network none` which disables all incoming and outgoing
 networking. In cases like this, you would perform I/O through files or
 `STDIN` and `STDOUT` only.
 
@@ -398,14 +395,14 @@ docker daemon. It is recommended to run containers in this mode when their
 networking performance is critical, for example, a production Load Balancer
 or a High Performance Web Server.
 
-> **Note**: `--net="host"` gives the container full access to local system
+> **Note**: `--network="host"` gives the container full access to local system
 > services such as D-bus and is therefore considered insecure.
 
 #### Network: container
 
 With the network set to `container` a container will share the
 network stack of another container.  The other container's name must be
-provided in the format of `--net container:<name|id>`. Note that `--add-host`
+provided in the format of `--network container:<name|id>`. Note that `--add-host`
 `--hostname` `--dns` `--dns-search` `--dns-opt` and `--mac-address` are
 invalid in `container` netmode, and `--publish` `--publish-all` `--expose` are
 also invalid in `container` netmode.
@@ -416,7 +413,7 @@ running the `redis-cli` command and connecting to the Redis server over the
 
     $ docker run -d --name redis example/redis --bind 127.0.0.1
     $ # use the redis container's network stack to access localhost
-    $ docker run --rm -it --net container:redis example/redis-cli -h 127.0.0.1
+    $ docker run --rm -it --network container:redis example/redis-cli -h 127.0.0.1
 
 #### User-defined network
 
@@ -434,7 +431,7 @@ driver and running a container in the created network
 
 ```
 $ docker network create -d bridge my-net
-$ docker run --net=my-net -itd --name=container3 busybox
+$ docker run --network=my-net -itd --name=container3 busybox
 ```
 
 ### Managing /etc/hosts
@@ -624,10 +621,8 @@ with the same logic -- if the original volume was specified with a name it will 
     --security-opt="label=type:TYPE"   : Set the label type for the container
     --security-opt="label=level:LEVEL" : Set the label level for the container
     --security-opt="label=disable"     : Turn off label confinement for the container
-    --security-opt="apparmor=PROFILE"  : Set the apparmor profile to be applied
-                                         to the container
-    --security-opt="no-new-privileges" : Disable container processes from gaining
-                                         new privileges
+    --security-opt="apparmor=PROFILE"  : Set the apparmor profile to be applied to the container
+    --security-opt="no-new-privileges" : Disable container processes from gaining new privileges
     --security-opt="seccomp=unconfined": Turn off seccomp confinement for the container
     --security-opt="seccomp=profile.json: White listed syscalls seccomp Json file to be used as a seccomp filter
 
@@ -641,7 +636,7 @@ allows you to share the same content between containers.
 > **Note**: Automatic translation of MLS labels is not currently supported.
 
 To disable the security labeling for this container versus running with the
-`--permissive` flag, use the following command:
+`--privileged` flag, use the following command:
 
     $ docker run --security-opt label=disable -it fedora bash
 
@@ -659,7 +654,10 @@ privileges, you can execute the following command:
 
     $ docker run --security-opt no-new-privileges -it centos bash
 
-For more details, see [kernel documentation](https://www.kernel.org/doc/Documentation/prctl/no_new_privs.txt).
+This means that commands that raise privileges such as `su` or `sudo` will no longer work.
+It also causes any seccomp filters to be applied later, after privileges have been dropped
+which may mean you can have a more restrictive set of filters.
+For more details, see the [kernel documentation](https://www.kernel.org/doc/Documentation/prctl/no_new_privs.txt).
 
 ## Specifying custom cgroups
 
@@ -691,6 +689,7 @@ container:
 | `--device-read-iops="" `   | Limit read rate (IO per second) from a device (format: `<device-path>:<number>`). Number is a positive integer.                                 |
 | `--device-write-iops="" `  | Limit write rate (IO per second) to a device (format: `<device-path>:<number>`). Number is a positive integer.                                  |
 | `--oom-kill-disable=false` | Whether to disable OOM Killer for the container or not.                                                                                         |
+| `--oom-score-adj=0`        | Tune container's OOM preferences (-1000 to 1000)                                                                                                |
 | `--memory-swappiness=""`   | Tune a container's memory swappiness behavior. Accepts an integer between 0 and 100.                                                            |
 | `--shm-size=""`            | Size of `/dev/shm`. The format is `<number><unit>`. `number` must be greater than `0`. Unit is optional and can be `b` (bytes), `k` (kilobytes), `m` (megabytes), or `g` (gigabytes). If you omit the unit, the system uses bytes. If you omit the size entirely, the system uses `64m`. |
 
@@ -823,7 +822,10 @@ The following example, illustrates a dangerous way to use the flag:
     $ docker run -it --oom-kill-disable ubuntu:14.04 /bin/bash
 
 The container has unlimited memory which can cause the host to run out memory
-and require killing system processes to free memory.
+and require killing system processes to free memory. The `--oom-score-adj`
+parameter can be changed to select the priority of which containers will
+be killed when the system is out of memory, with negative scores making them
+less likely to be killed an positive more likely.
 
 ### Kernel memory constraints
 
@@ -1073,7 +1075,7 @@ Both flags take limits in the `<device-path>:<limit>` format. Both read and
 write rates must be a positive integer.
 
 ## Additional groups
-    --group-add: Add additional groups to run as 
+    --group-add: Add additional groups to run as
 
 By default, the docker container process runs with the supplementary groups looked
 up for the specified user. If one wants to add more to that list of groups, then
@@ -1127,11 +1129,30 @@ This can be overridden using a third `:rwm` set of options to each `--device` fl
 
 In addition to `--privileged`, the operator can have fine grain control over the
 capabilities using `--cap-add` and `--cap-drop`. By default, Docker has a default
-list of capabilities that are kept. The following table lists the Linux capability options which can be added or dropped.
+list of capabilities that are kept. The following table lists the Linux capability
+options which are allowed by default and can be dropped.
 
 | Capability Key   | Capability Description                                                                                                        |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | SETPCAP          | Modify process capabilities.                                                                                                  |
+| MKNOD            | Create special files using mknod(2).                                                                                          |
+| AUDIT_WRITE      | Write records to kernel auditing log.                                                                                         |
+| CHOWN            | Make arbitrary changes to file UIDs and GIDs (see chown(2)).                                                                  |
+| NET_RAW          | Use RAW and PACKET sockets.                                                                                                   |
+| DAC_OVERRIDE     | Bypass file read, write, and execute permission checks.                                                                       |
+| FOWNER           | Bypass permission checks on operations that normally require the file system UID of the process to match the UID of the file. |
+| FSETID           | Don't clear set-user-ID and set-group-ID permission bits when a file is modified.                                             |
+| KILL             | Bypass permission checks for sending signals.                                                                                 |
+| SETGID           | Make arbitrary manipulations of process GIDs and supplementary GID list.                                                      |
+| SETUID           | Make arbitrary manipulations of process UIDs.                                                                                 |
+| NET_BIND_SERVICE | Bind a socket to internet domain privileged ports (port numbers less than 1024).                                              |
+| SYS_CHROOT       | Use chroot(2), change root directory.                                                                                         |
+| SETFCAP          | Set file capabilities.                                                                                                        |
+
+The next table shows the capabilities which are not granted by default and may be added.
+
+| Capability Key   | Capability Description                                                                                                        |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | SYS_MODULE       | Load and unload kernel modules.                                                                                               |
 | SYS_RAWIO        | Perform I/O port operations (iopl(2) and ioperm(2)).                                                                          |
 | SYS_PACCT        | Use acct(2), switch process accounting on or off.                                                                             |
@@ -1140,36 +1161,23 @@ list of capabilities that are kept. The following table lists the Linux capabili
 | SYS_RESOURCE     | Override resource Limits.                                                                                                     |
 | SYS_TIME         | Set system clock (settimeofday(2), stime(2), adjtimex(2)); set real-time (hardware) clock.                                    |
 | SYS_TTY_CONFIG   | Use vhangup(2); employ various privileged ioctl(2) operations on virtual terminals.                                           |
-| MKNOD            | Create special files using mknod(2).                                                                                          |
-| AUDIT_WRITE      | Write records to kernel auditing log.                                                                                         |
 | AUDIT_CONTROL    | Enable and disable kernel auditing; change auditing filter rules; retrieve auditing status and filtering rules.               |
 | MAC_OVERRIDE     | Allow MAC configuration or state changes. Implemented for the Smack LSM.                                                      |
 | MAC_ADMIN        | Override Mandatory Access Control (MAC). Implemented for the Smack Linux Security Module (LSM).                               |
 | NET_ADMIN        | Perform various network-related operations.                                                                                   |
 | SYSLOG           | Perform privileged syslog(2) operations.                                                                                      |
-| CHOWN            | Make arbitrary changes to file UIDs and GIDs (see chown(2)).                                                                  |
-| NET_RAW          | Use RAW and PACKET sockets.                                                                                                   |
-| DAC_OVERRIDE     | Bypass file read, write, and execute permission checks.                                                                       |
-| FOWNER           | Bypass permission checks on operations that normally require the file system UID of the process to match the UID of the file. |
 | DAC_READ_SEARCH  | Bypass file read permission checks and directory read and execute permission checks.                                          |
-| FSETID           | Don't clear set-user-ID and set-group-ID permission bits when a file is modified.                                             |
-| KILL             | Bypass permission checks for sending signals.                                                                                 |
-| SETGID           | Make arbitrary manipulations of process GIDs and supplementary GID list.                                                      |
-| SETUID           | Make arbitrary manipulations of process UIDs.                                                                                 |
 | LINUX_IMMUTABLE  | Set the FS_APPEND_FL and FS_IMMUTABLE_FL i-node flags.                                                                        |
-| NET_BIND_SERVICE | Bind a socket to internet domain privileged ports (port numbers less than 1024).                                              |
 | NET_BROADCAST    | Make socket broadcasts, and listen to multicasts.                                                                             |
 | IPC_LOCK         | Lock memory (mlock(2), mlockall(2), mmap(2), shmctl(2)).                                                                      |
 | IPC_OWNER        | Bypass permission checks for operations on System V IPC objects.                                                              |
-| SYS_CHROOT       | Use chroot(2), change root directory.                                                                                         |
 | SYS_PTRACE       | Trace arbitrary processes using ptrace(2).                                                                                    |
 | SYS_BOOT         | Use reboot(2) and kexec_load(2), reboot and load a new kernel for later execution.                                            |
 | LEASE            | Establish leases on arbitrary files (see fcntl(2)).                                                                           |
-| SETFCAP          | Set file capabilities.                                                                                                        |
 | WAKE_ALARM       | Trigger something that will wake up the system.                                                                               |
-| BLOCK_SUSPEND    | Employ features that can block system suspend.                                                                                 
+| BLOCK_SUSPEND    | Employ features that can block system suspend.                                                                                |
 
-Further reference information is available on the [capabilities(7) - Linux man page](http://linux.die.net/man/7/capabilities)
+Further reference information is available on the [capabilities(7) - Linux man page](http://man7.org/linux/man-pages/man7/capabilities.7.html)
 
 Both flags support the value `ALL`, so if the
 operator wants to have all capabilities but `MKNOD` they could use:
@@ -1250,6 +1258,7 @@ Dockerfile instruction and how the operator can override that setting.
     #entrypoint-default-command-to-execute-at-runtime)
  - [EXPOSE (Incoming Ports)](#expose-incoming-ports)
  - [ENV (Environment Variables)](#env-environment-variables)
+ - [HEALTHCHECK](#healthcheck)
  - [VOLUME (Shared Filesystems)](#volume-shared-filesystems)
  - [USER](#user)
  - [WORKDIR](#workdir)
@@ -1292,6 +1301,13 @@ or two examples of how to pass more parameters to that ENTRYPOINT:
 
     $ docker run -it --entrypoint /bin/bash example/redis -c ls -l
     $ docker run -it --entrypoint /usr/bin/redis-cli example/redis --help
+
+You can reset a containers entrypoint by passing an empty string, for example:
+
+    $ docker run -it --entrypoint="" mysql bash
+
+> **Note**: Passing `--entrypoint` will clear out any default command set on the
+> image (i.e. any `CMD` instruction in the Dockerfile used to build it).
 
 ### EXPOSE (incoming ports)
 
@@ -1398,6 +1414,65 @@ above, or already defined by the developer with a Dockerfile `ENV`:
 
 Similarly the operator can set the **hostname** with `-h`.
 
+### HEALTHCHECK
+
+```
+  --health-cmd            Command to run to check health
+  --health-interval       Time between running the check
+  --health-retries        Consecutive failures needed to report unhealthy
+  --health-timeout        Maximum time to allow one check to run
+  --no-healthcheck        Disable any container-specified HEALTHCHECK
+```
+
+Example:
+
+    $ docker run --name=test -d \
+        --health-cmd='stat /etc/passwd || exit 1' \
+        --health-interval=2s \
+        busybox sleep 1d
+    $ sleep 2; docker inspect --format='{{.State.Health.Status}}' test
+    healthy
+    $ docker exec test rm /etc/passwd
+    $ sleep 2; docker inspect --format='{{json .State.Health}}' test
+    {
+      "Status": "unhealthy",
+      "FailingStreak": 3,
+      "Log": [
+        {
+          "Start": "2016-05-25T17:22:04.635478668Z",
+          "End": "2016-05-25T17:22:04.7272552Z",
+          "ExitCode": 0,
+          "Output": "  File: /etc/passwd\n  Size: 334       \tBlocks: 8          IO Block: 4096   regular file\nDevice: 32h/50d\tInode: 12          Links: 1\nAccess: (0664/-rw-rw-r--)  Uid: (    0/    root)   Gid: (    0/    root)\nAccess: 2015-12-05 22:05:32.000000000\nModify: 2015..."
+        },
+        {
+          "Start": "2016-05-25T17:22:06.732900633Z",
+          "End": "2016-05-25T17:22:06.822168935Z",
+          "ExitCode": 0,
+          "Output": "  File: /etc/passwd\n  Size: 334       \tBlocks: 8          IO Block: 4096   regular file\nDevice: 32h/50d\tInode: 12          Links: 1\nAccess: (0664/-rw-rw-r--)  Uid: (    0/    root)   Gid: (    0/    root)\nAccess: 2015-12-05 22:05:32.000000000\nModify: 2015..."
+        },
+        {
+          "Start": "2016-05-25T17:22:08.823956535Z",
+          "End": "2016-05-25T17:22:08.897359124Z",
+          "ExitCode": 1,
+          "Output": "stat: can't stat '/etc/passwd': No such file or directory\n"
+        },
+        {
+          "Start": "2016-05-25T17:22:10.898802931Z",
+          "End": "2016-05-25T17:22:10.969631866Z",
+          "ExitCode": 1,
+          "Output": "stat: can't stat '/etc/passwd': No such file or directory\n"
+        },
+        {
+          "Start": "2016-05-25T17:22:12.971033523Z",
+          "End": "2016-05-25T17:22:13.082015516Z",
+          "ExitCode": 1,
+          "Output": "stat: can't stat '/etc/passwd': No such file or directory\n"
+        }
+      ]
+    }
+
+The health status is also displayed in the `docker ps` output.
+
 ### TMPFS (mount tmpfs filesystems)
 
 ```bash
@@ -1437,8 +1512,8 @@ The example below mounts an empty tmpfs into the container with the `rw`,
 > a volume.
 
 The volumes commands are complex enough to have their own documentation
-in section [*Managing data in
-containers*](../userguide/containers/dockervolumes.md). A developer can define
+in section [*Manage data in
+containers*](../tutorials/dockervolumes.md). A developer can define
 one or more `VOLUME`'s associated with an image, but only the operator
 can give access from one container to another (or from a container to a
 volume mounted on the host).
@@ -1467,7 +1542,7 @@ Dockerfile `USER` instruction. When starting a container, the operator can overr
 the `USER` instruction by passing the `-u` option.
 
     -u="", --user="": Sets the username or UID used and optionally the groupname or GID for the specified command.
- 
+
     The followings examples are all valid:
     --user=[ user | user:group | uid | uid:gid | user:gid | uid:group ]
 

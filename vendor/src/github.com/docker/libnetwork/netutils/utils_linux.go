@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/docker/libnetwork/ipamutils"
+	"github.com/docker/libnetwork/ns"
 	"github.com/docker/libnetwork/osl"
 	"github.com/docker/libnetwork/resolvconf"
 	"github.com/docker/libnetwork/types"
@@ -16,16 +17,18 @@ import (
 )
 
 var (
-	networkGetRoutesFct = netlink.RouteList
+	networkGetRoutesFct func(netlink.Link, int) ([]netlink.Route, error)
 )
 
 // CheckRouteOverlaps checks whether the passed network overlaps with any existing routes
 func CheckRouteOverlaps(toCheck *net.IPNet) error {
+	if networkGetRoutesFct == nil {
+		networkGetRoutesFct = ns.NlHandle().RouteList
+	}
 	networks, err := networkGetRoutesFct(nil, netlink.FAMILY_V4)
 	if err != nil {
 		return err
 	}
-
 	for _, network := range networks {
 		if network.Dst != nil && NetworkOverlaps(toCheck, network.Dst) {
 			return ErrNetworkOverlaps
@@ -37,13 +40,18 @@ func CheckRouteOverlaps(toCheck *net.IPNet) error {
 // GenerateIfaceName returns an interface name using the passed in
 // prefix and the length of random bytes. The api ensures that the
 // there are is no interface which exists with that name.
-func GenerateIfaceName(prefix string, len int) (string, error) {
+func GenerateIfaceName(nlh *netlink.Handle, prefix string, len int) (string, error) {
+	linkByName := netlink.LinkByName
+	if nlh != nil {
+		linkByName = nlh.LinkByName
+	}
 	for i := 0; i < 3; i++ {
 		name, err := GenerateRandomName(prefix, len)
 		if err != nil {
 			continue
 		}
-		if _, err := netlink.LinkByName(name); err != nil {
+		_, err = linkByName(name)
+		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
 				return name, nil
 			}
@@ -55,7 +63,7 @@ func GenerateIfaceName(prefix string, len int) (string, error) {
 
 // ElectInterfaceAddresses looks for an interface on the OS with the
 // specified name and returns its IPv4 and IPv6 addresses in CIDR
-// form. If the interface does not exist, it chooses from a predifined
+// form. If the interface does not exist, it chooses from a predefined
 // list the first IPv4 address which does not conflict with other
 // interfaces on the system.
 func ElectInterfaceAddresses(name string) (*net.IPNet, []*net.IPNet, error) {
@@ -67,13 +75,13 @@ func ElectInterfaceAddresses(name string) (*net.IPNet, []*net.IPNet, error) {
 
 	defer osl.InitOSContext()()
 
-	link, _ := netlink.LinkByName(name)
+	link, _ := ns.NlHandle().LinkByName(name)
 	if link != nil {
-		v4addr, err := netlink.AddrList(link, netlink.FAMILY_V4)
+		v4addr, err := ns.NlHandle().AddrList(link, netlink.FAMILY_V4)
 		if err != nil {
 			return nil, nil, err
 		}
-		v6addr, err := netlink.AddrList(link, netlink.FAMILY_V6)
+		v6addr, err := ns.NlHandle().AddrList(link, netlink.FAMILY_V6)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -86,7 +94,7 @@ func ElectInterfaceAddresses(name string) (*net.IPNet, []*net.IPNet, error) {
 	}
 
 	if link == nil || v4Net == nil {
-		// Choose from predifined broad networks
+		// Choose from predefined broad networks
 		v4Net, err = FindAvailableNetwork(ipamutils.PredefinedBroadNetworks)
 		if err != nil {
 			return nil, nil, err

@@ -10,13 +10,13 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/types/backend"
+	containertypes "github.com/docker/docker/api/types/container"
+	timetypes "github.com/docker/docker/api/types/time"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/logger"
 	"github.com/docker/docker/daemon/logger/jsonfilelog"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/stdcopy"
-	containertypes "github.com/docker/engine-api/types/container"
-	timetypes "github.com/docker/engine-api/types/time"
 )
 
 // ContainerLogs hooks up a container's stdout and stderr streams
@@ -68,7 +68,8 @@ func (daemon *Daemon) ContainerLogs(ctx context.Context, containerName string, c
 	close(started)
 	wf.Flush()
 
-	var outStream io.Writer = wf
+	var outStream io.Writer
+	outStream = wf
 	errStream := outStream
 	if !container.Config.Tty {
 		errStream = stdcopy.NewStdWriter(outStream, stdcopy.Stderr)
@@ -85,8 +86,15 @@ func (daemon *Daemon) ContainerLogs(ctx context.Context, containerName string, c
 			return nil
 		case msg, ok := <-logs.Msg:
 			if !ok {
-				logrus.Debugf("logs: end stream")
+				logrus.Debug("logs: end stream")
 				logs.Close()
+				if cLog != container.LogDriver {
+					// Since the logger isn't cached in the container, which occurs if it is running, it
+					// must get explicitly closed here to avoid leaking it and any file handles it has.
+					if err := cLog.Close(); err != nil {
+						logrus.Errorf("Error closing logger: %v", err)
+					}
+				}
 				return nil
 			}
 			logLine := msg.Line
@@ -124,7 +132,7 @@ func (daemon *Daemon) StartLogging(container *container.Container) error {
 		return fmt.Errorf("Failed to initialize logging driver: %v", err)
 	}
 
-	copier := logger.NewCopier(container.ID, map[string]io.Reader{"stdout": container.StdoutPipe(), "stderr": container.StderrPipe()}, l)
+	copier := logger.NewCopier(map[string]io.Reader{"stdout": container.StdoutPipe(), "stderr": container.StderrPipe()}, l)
 	container.LogCopier = copier
 	copier.Run()
 	container.LogDriver = l
@@ -141,6 +149,10 @@ func (daemon *Daemon) StartLogging(container *container.Container) error {
 func (daemon *Daemon) mergeAndVerifyLogConfig(cfg *containertypes.LogConfig) error {
 	if cfg.Type == "" {
 		cfg.Type = daemon.defaultLogConfig.Type
+	}
+
+	if cfg.Config == nil {
+		cfg.Config = make(map[string]string)
 	}
 
 	if cfg.Type == daemon.defaultLogConfig.Type {

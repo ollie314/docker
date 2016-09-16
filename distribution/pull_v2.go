@@ -32,7 +32,11 @@ import (
 	"golang.org/x/net/context"
 )
 
-var errRootFSMismatch = errors.New("layers from manifest don't match image configuration")
+var (
+	errRootFSMismatch  = errors.New("layers from manifest don't match image configuration")
+	errMediaTypePlugin = errors.New("target is a plugin")
+	errRootFSInvalid   = errors.New("invalid rootfs in image configuration")
+)
 
 // ImageConfigPullError is an error pulling the image config blob
 // (only applies to schema2).
@@ -133,6 +137,7 @@ type v2LayerDescriptor struct {
 	V2MetadataService *metadata.V2MetadataService
 	tmpFile           *os.File
 	verifier          digest.Verifier
+	src               distribution.Descriptor
 }
 
 func (ld *v2LayerDescriptor) Key() string {
@@ -180,9 +185,8 @@ func (ld *v2LayerDescriptor) Download(ctx context.Context, progressOutput progre
 	}
 
 	tmpFile := ld.tmpFile
-	blobs := ld.repo.Blobs(ctx)
 
-	layerDownload, err := blobs.Open(ctx, ld.digest)
+	layerDownload, err := ld.open(ctx)
 	if err != nil {
 		logrus.Errorf("Error initiating layer download: %v", err)
 		if err == distribution.ErrBlobUnknown {
@@ -208,7 +212,7 @@ func (ld *v2LayerDescriptor) Download(ctx context.Context, progressOutput progre
 		size = 0
 	} else {
 		if size != 0 && offset > size {
-			logrus.Debugf("Partial download is larger than full blob. Starting over")
+			logrus.Debug("Partial download is larger than full blob. Starting over")
 			offset = 0
 			if err := ld.truncateDownloadFile(); err != nil {
 				return nil, 0, xfer.DoNotRetry{Err: err}
@@ -356,6 +360,12 @@ func (p *v2Puller) pullV2Tag(ctx context.Context, ref reference.Named) (tagUpdat
 		return false, fmt.Errorf("image manifest does not exist for tag or digest %q", tagOrDigest)
 	}
 
+	if m, ok := manifest.(*schema2.DeserializedManifest); ok {
+		if m.Manifest.Config.MediaType == schema2.MediaTypePluginConfig {
+			return false, errMediaTypePlugin
+		}
+	}
+
 	// If manSvc.Get succeeded, we can be confident that the registry on
 	// the other side speaks the v2 protocol.
 	p.confirmedV2 = true
@@ -393,7 +403,7 @@ func (p *v2Puller) pullV2Tag(ctx context.Context, ref reference.Named) (tagUpdat
 	oldTagImageID, err := p.config.ReferenceStore.Get(ref)
 	if err == nil {
 		if oldTagImageID == imageID {
-			return false, nil
+			return false, addDigestReference(p.config.ReferenceStore, ref, manifestDigest, imageID)
 		}
 	} else if err != reference.ErrDoesNotExist {
 		return false, err
@@ -403,10 +413,14 @@ func (p *v2Puller) pullV2Tag(ctx context.Context, ref reference.Named) (tagUpdat
 		if err = p.config.ReferenceStore.AddDigest(canonical, imageID, true); err != nil {
 			return false, err
 		}
-	} else if err = p.config.ReferenceStore.AddTag(ref, imageID, true); err != nil {
-		return false, err
+	} else {
+		if err = addDigestReference(p.config.ReferenceStore, ref, manifestDigest, imageID); err != nil {
+			return false, err
+		}
+		if err = p.config.ReferenceStore.AddTag(ref, imageID, true); err != nil {
+			return false, err
+		}
 	}
-
 	return true, nil
 }
 
@@ -418,10 +432,6 @@ func (p *v2Puller) pullSchema1(ctx context.Context, ref reference.Named, unverif
 	}
 
 	rootFS := image.NewRootFS()
-
-	if err := detectBaseLayer(p.config.ImageStore, verifiedManifest, rootFS); err != nil {
-		return "", "", err
-	}
 
 	// remove duplicate layers and check parent chain validity
 	err = fixManifestLayers(verifiedManifest)
@@ -501,6 +511,22 @@ func (p *v2Puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *s
 		return imageID, manifestDigest, nil
 	}
 
+	var descriptors []xfer.DownloadDescriptor
+
+	// Note that the order of this loop is in the direction of bottom-most
+	// to top-most, so that the downloads slice gets ordered correctly.
+	for _, d := range mfst.Layers {
+		layerDescriptor := &v2LayerDescriptor{
+			digest:            d.Digest,
+			repo:              p.repo,
+			repoInfo:          p.repoInfo,
+			V2MetadataService: p.V2MetadataService,
+			src:               d,
+		}
+
+		descriptors = append(descriptors, layerDescriptor)
+	}
+
 	configChan := make(chan []byte, 1)
 	errChan := make(chan error, 1)
 	var cancel func()
@@ -517,39 +543,36 @@ func (p *v2Puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *s
 		configChan <- configJSON
 	}()
 
-	var descriptors []xfer.DownloadDescriptor
-
-	// Note that the order of this loop is in the direction of bottom-most
-	// to top-most, so that the downloads slice gets ordered correctly.
-	for _, d := range mfst.References() {
-		layerDescriptor := &v2LayerDescriptor{
-			digest:            d.Digest,
-			repo:              p.repo,
-			repoInfo:          p.repoInfo,
-			V2MetadataService: p.V2MetadataService,
-		}
-
-		descriptors = append(descriptors, layerDescriptor)
-	}
-
 	var (
 		configJSON         []byte       // raw serialized image config
 		unmarshalledConfig image.Image  // deserialized image config
 		downloadRootFS     image.RootFS // rootFS to use for registering layers.
 	)
+
+	// https://github.com/docker/docker/issues/24766 - Err on the side of caution,
+	// explicitly blocking images intended for linux from the Windows daemon. On
+	// Windows, we do this before the attempt to download, effectively serialising
+	// the download slightly slowing it down. We have to do it this way, as
+	// chances are the download of layers itself would fail due to file names
+	// which aren't suitable for NTFS. At some point in the future, if a similar
+	// check to block Windows images being pulled on Linux is implemented, it
+	// may be necessary to perform the same type of serialisation.
 	if runtime.GOOS == "windows" {
 		configJSON, unmarshalledConfig, err = receiveConfig(configChan, errChan)
 		if err != nil {
 			return "", "", err
 		}
+
 		if unmarshalledConfig.RootFS == nil {
-			return "", "", errors.New("image config has no rootfs section")
+			return "", "", errRootFSInvalid
 		}
-		downloadRootFS = *unmarshalledConfig.RootFS
-		downloadRootFS.DiffIDs = []layer.DiffID{}
-	} else {
-		downloadRootFS = *image.NewRootFS()
+
+		if unmarshalledConfig.OS == "linux" {
+			return "", "", fmt.Errorf("image operating system %q cannot be used on this platform", unmarshalledConfig.OS)
+		}
 	}
+
+	downloadRootFS = *image.NewRootFS()
 
 	rootFS, release, err := p.config.DownloadManager.Download(ctx, downloadRootFS, descriptors, p.config.ProgressOutput)
 	if err != nil {
@@ -575,6 +598,10 @@ func (p *v2Puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *s
 		configJSON, unmarshalledConfig, err = receiveConfig(configChan, errChan)
 		if err != nil {
 			return "", "", err
+		}
+
+		if unmarshalledConfig.RootFS == nil {
+			return "", "", errRootFSInvalid
 		}
 	}
 

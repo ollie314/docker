@@ -19,7 +19,7 @@ const APIVersionKey = "api-version"
 const UAStringKey = "upstream-user-agent"
 
 // APIFunc is an adapter to allow the use of ordinary functions as Docker API endpoints.
-// Any function that has the appropriate signature can be registered as a API endpoint (e.g. getVersion).
+// Any function that has the appropriate signature can be registered as an API endpoint (e.g. getVersion).
 type APIFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error
 
 // HijackConnection interrupts the http response writer to get the
@@ -72,14 +72,6 @@ func ParseForm(r *http.Request) error {
 		return nil
 	}
 	if err := r.ParseForm(); err != nil && !strings.HasPrefix(err.Error(), "mime:") {
-		return err
-	}
-	return nil
-}
-
-// ParseMultipartForm ensures the request form is parsed, even with invalid content types.
-func ParseMultipartForm(r *http.Request) error {
-	if err := r.ParseMultipartForm(4096); err != nil && !strings.HasPrefix(err.Error(), "mime:") {
 		return err
 	}
 	return nil

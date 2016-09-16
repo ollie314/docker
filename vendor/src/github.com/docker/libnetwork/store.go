@@ -346,6 +346,10 @@ func (c *controller) networkWatchLoop(nw *netWatch, ep *endpoint, ecCh <-chan da
 }
 
 func (c *controller) processEndpointCreate(nmap map[string]*netWatch, ep *endpoint) {
+	if !c.isDistributedControl() && ep.getNetwork().driverScope() == datastore.GlobalScope {
+		return
+	}
+
 	c.Lock()
 	nw, ok := nmap[ep.getNetwork().ID()]
 	c.Unlock()
@@ -400,6 +404,10 @@ func (c *controller) processEndpointCreate(nmap map[string]*netWatch, ep *endpoi
 }
 
 func (c *controller) processEndpointDelete(nmap map[string]*netWatch, ep *endpoint) {
+	if !c.isDistributedControl() && ep.getNetwork().driverScope() == datastore.GlobalScope {
+		return
+	}
+
 	c.Lock()
 	nw, ok := nmap[ep.getNetwork().ID()]
 
@@ -463,4 +471,13 @@ func (c *controller) networkCleanup() {
 			}
 		}
 	}
+}
+
+var populateSpecial NetworkWalker = func(nw Network) bool {
+	if n := nw.(*network); n.hasSpecialDriver() {
+		if err := n.getController().addNetwork(n); err != nil {
+			log.Warnf("Failed to populate network %q with driver %q", nw.Name(), nw.Type())
+		}
+	}
+	return false
 }

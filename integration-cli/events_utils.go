@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/docker/docker/daemon/events/testutils"
+	eventstestutils "github.com/docker/docker/daemon/events/testutils"
 	"github.com/docker/docker/pkg/integration/checker"
 	"github.com/go-check/check"
 )
@@ -89,7 +89,7 @@ func (e *eventObserver) Match(match eventMatcher, process eventMatchProcessor) {
 		err = io.EOF
 	}
 
-	logrus.Debug("EventObserver scanner loop finished: %v", err)
+	logrus.Debugf("EventObserver scanner loop finished: %v", err)
 	e.disconnectionError = err
 }
 

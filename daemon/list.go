@@ -3,16 +3,17 @@ package daemon
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/filters"
+	networktypes "github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/volume"
-	"github.com/docker/engine-api/types"
-	"github.com/docker/engine-api/types/filters"
-	networktypes "github.com/docker/engine-api/types/network"
 	"github.com/docker/go-connections/nat"
 )
 
@@ -20,6 +21,7 @@ var acceptedVolumeFilterTags = map[string]bool{
 	"dangling": true,
 	"name":     true,
 	"driver":   true,
+	"label":    true,
 }
 
 var acceptedPsFilterTags = map[string]bool{
@@ -33,6 +35,7 @@ var acceptedPsFilterTags = map[string]bool{
 	"status":    true,
 	"since":     true,
 	"volume":    true,
+	"network":   true,
 }
 
 // iterationAction represents possible outcomes happening during the container iteration.
@@ -85,9 +88,75 @@ type listContext struct {
 	*types.ContainerListOptions
 }
 
+// byContainerCreated is a temporary type used to sort a list of containers by creation time.
+type byContainerCreated []*container.Container
+
+func (r byContainerCreated) Len() int      { return len(r) }
+func (r byContainerCreated) Swap(i, j int) { r[i], r[j] = r[j], r[i] }
+func (r byContainerCreated) Less(i, j int) bool {
+	return r[i].Created.UnixNano() < r[j].Created.UnixNano()
+}
+
 // Containers returns the list of containers to show given the user's filtering.
 func (daemon *Daemon) Containers(config *types.ContainerListOptions) ([]*types.Container, error) {
 	return daemon.reduceContainers(config, daemon.transformContainer)
+}
+
+func (daemon *Daemon) filterByNameIDMatches(ctx *listContext) []*container.Container {
+	idSearch := false
+	names := ctx.filters.Get("name")
+	ids := ctx.filters.Get("id")
+	if len(names)+len(ids) == 0 {
+		// if name or ID filters are not in use, return to
+		// standard behavior of walking the entire container
+		// list from the daemon's in-memory store
+		return daemon.List()
+	}
+
+	// idSearch will determine if we limit name matching to the IDs
+	// matched from any IDs which were specified as filters
+	if len(ids) > 0 {
+		idSearch = true
+	}
+
+	matches := make(map[string]bool)
+	// find ID matches; errors represent "not found" and can be ignored
+	for _, id := range ids {
+		if fullID, err := daemon.idIndex.Get(id); err == nil {
+			matches[fullID] = true
+		}
+	}
+
+	// look for name matches; if ID filtering was used, then limit the
+	// search space to the matches map only; errors represent "not found"
+	// and can be ignored
+	if len(names) > 0 {
+		for id, idNames := range ctx.names {
+			// if ID filters were used and no matches on that ID were
+			// found, continue to next ID in the list
+			if idSearch && !matches[id] {
+				continue
+			}
+			for _, eachName := range idNames {
+				if ctx.filters.Match("name", eachName) {
+					matches[id] = true
+				}
+			}
+		}
+	}
+
+	cntrs := make([]*container.Container, 0, len(matches))
+	for id := range matches {
+		if c := daemon.containers.Get(id); c != nil {
+			cntrs = append(cntrs, c)
+		}
+	}
+
+	// Restore sort-order after filtering
+	// Created gives us nanosec resolution for sorting
+	sort.Sort(sort.Reverse(byContainerCreated(cntrs)))
+
+	return cntrs
 }
 
 // reduceContainers parses the user's filtering options and generates the list of containers to return based on a reducer.
@@ -99,7 +168,12 @@ func (daemon *Daemon) reduceContainers(config *types.ContainerListOptions, reduc
 		return nil, err
 	}
 
-	for _, container := range daemon.List() {
+	// fastpath to only look at a subset of containers if specific name
+	// or ID matches were provided by the user--otherwise we potentially
+	// end up locking and querying many more containers than intended
+	containerList := daemon.filterByNameIDMatches(ctx)
+
+	for _, container := range containerList {
 		t, err := daemon.reducePsContainer(container, ctx, reducer)
 		if err != nil {
 			if err != errStopIteration {
@@ -270,7 +344,7 @@ func includeContainerInList(container *container.Container, ctx *listContext) it
 	if len(ctx.exitAllowed) > 0 {
 		shouldSkip := true
 		for _, code := range ctx.exitAllowed {
-			if code == container.ExitCode && !container.Running && !container.StartedAt.IsZero() {
+			if code == container.ExitCode() && !container.Running && !container.StartedAt.IsZero() {
 				shouldSkip = false
 				break
 			}
@@ -315,6 +389,27 @@ func includeContainerInList(container *container.Container, ctx *listContext) it
 			return excludeContainer
 		}
 		if !ctx.images[container.ImageID] {
+			return excludeContainer
+		}
+	}
+
+	networkExist := fmt.Errorf("container part of network")
+	if ctx.filters.Include("network") {
+		err := ctx.filters.WalkValues("network", func(value string) error {
+			if _, ok := container.NetworkSettings.Networks[value]; ok {
+				return networkExist
+			}
+			for _, nw := range container.NetworkSettings.Networks {
+				if nw.EndpointSettings == nil {
+					continue
+				}
+				if nw.NetworkID == value {
+					return networkExist
+				}
+			}
+			return nil
+		})
+		if err != networkExist {
 			return excludeContainer
 		}
 	}
@@ -368,7 +463,7 @@ func (daemon *Daemon) transformContainer(container *container.Container, ctx *li
 	// copy networks to avoid races
 	networks := make(map[string]*networktypes.EndpointSettings)
 	for name, network := range container.NetworkSettings.Networks {
-		if network == nil {
+		if network == nil || network.EndpointSettings == nil {
 			continue
 		}
 		networks[name] = &networktypes.EndpointSettings{
@@ -380,6 +475,7 @@ func (daemon *Daemon) transformContainer(container *container.Container, ctx *li
 			GlobalIPv6Address:   network.GlobalIPv6Address,
 			GlobalIPv6PrefixLen: network.GlobalIPv6PrefixLen,
 			MacAddress:          network.MacAddress,
+			NetworkID:           network.NetworkID,
 		}
 		if network.IPAMConfig != nil {
 			networks[name].IPAMConfig = &networktypes.EndpointIPAMConfig{
@@ -444,6 +540,10 @@ func (daemon *Daemon) Volumes(filter string) ([]*types.Volume, []string, error) 
 	}
 
 	volumes, warnings, err := daemon.volumes.List()
+	if err != nil {
+		return nil, nil, err
+	}
+
 	filterVolumes, err := daemon.filterVolumes(volumes, volFilters)
 	if err != nil {
 		return nil, nil, err
@@ -479,6 +579,15 @@ func (daemon *Daemon) filterVolumes(vols []volume.Volume, filter filters.Args) (
 		}
 		if filter.Include("driver") {
 			if !filter.Match("driver", vol.DriverName()) {
+				continue
+			}
+		}
+		if filter.Include("label") {
+			v, ok := vol.(volume.LabeledVolume)
+			if !ok {
+				continue
+			}
+			if !filter.MatchKVList("label", v.Labels()) {
 				continue
 			}
 		}

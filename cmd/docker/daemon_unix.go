@@ -3,17 +3,39 @@
 package main
 
 import (
+	"fmt"
+
 	"os"
 	"os/exec"
 	"path/filepath"
 	"syscall"
+
+	"github.com/spf13/cobra"
 )
 
-// CmdDaemon execs dockerd with the same flags
-func (p DaemonProxy) CmdDaemon(args ...string) error {
-	// Use os.Args[1:] so that "global" args are passed to dockerd
-	args = stripDaemonArg(os.Args[1:])
+const daemonBinary = "dockerd"
 
+func newDaemonCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:                "daemon",
+		Hidden:             true,
+		Args:               cobra.ArbitraryArgs,
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDaemon()
+		},
+	}
+	cmd.SetHelpFunc(helpFunc)
+	return cmd
+}
+
+// CmdDaemon execs dockerd with the same flags
+func runDaemon() error {
+	// Use os.Args[1:] so that "global" args are passed to dockerd
+	return execDaemon(stripDaemonArg(os.Args[1:]))
+}
+
+func execDaemon(args []string) error {
 	binaryPath, err := findDaemonBinary()
 	if err != nil {
 		return err
@@ -23,6 +45,12 @@ func (p DaemonProxy) CmdDaemon(args ...string) error {
 		binaryPath,
 		append([]string{daemonBinary}, args...),
 		os.Environ())
+}
+
+func helpFunc(cmd *cobra.Command, args []string) {
+	if err := execDaemon([]string{"--help"}); err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err.Error())
+	}
 }
 
 // findDaemonBinary looks for the path to the dockerd binary starting with

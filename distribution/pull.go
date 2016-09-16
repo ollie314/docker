@@ -4,14 +4,15 @@ import (
 	"fmt"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/distribution/digest"
 	"github.com/docker/docker/api"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
-	"github.com/docker/engine-api/types"
 	"golang.org/x/net/context"
 )
 
@@ -84,7 +85,7 @@ func Pull(ctx context.Context, ref reference.Named, imagePullConfig *ImagePullCo
 	}
 
 	// makes sure name is not empty or `scratch`
-	if err := validateRepoName(repoInfo.Name()); err != nil {
+	if err := ValidateRepoName(repoInfo.Name()); err != nil {
 		return err
 	}
 
@@ -193,8 +194,8 @@ func writeStatus(requestedTag string, out progress.Output, layersDownloaded bool
 	}
 }
 
-// validateRepoName validates the name of a repository.
-func validateRepoName(name string) error {
+// ValidateRepoName validates the name of a repository.
+func ValidateRepoName(name string) error {
 	if name == "" {
 		return fmt.Errorf("Repository name can't be empty")
 	}
@@ -202,4 +203,23 @@ func validateRepoName(name string) error {
 		return fmt.Errorf("'%s' is a reserved name", api.NoBaseImageSpecifier)
 	}
 	return nil
+}
+
+func addDigestReference(store reference.Store, ref reference.Named, dgst digest.Digest, imageID image.ID) error {
+	dgstRef, err := reference.WithDigest(ref, dgst)
+	if err != nil {
+		return err
+	}
+
+	if oldTagImageID, err := store.Get(dgstRef); err == nil {
+		if oldTagImageID != imageID {
+			// Updating digests not supported by reference store
+			logrus.Errorf("Image ID for digest %s changed from %s to %s, cannot update", dgst.String(), oldTagImageID, imageID)
+		}
+		return nil
+	} else if err != reference.ErrDoesNotExist {
+		return err
+	}
+
+	return store.AddDigest(dgstRef, imageID, true)
 }

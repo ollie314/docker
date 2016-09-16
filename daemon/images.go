@@ -5,11 +5,11 @@ import (
 	"path"
 	"sort"
 
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/reference"
-	"github.com/docker/engine-api/types"
-	"github.com/docker/engine-api/types/filters"
 )
 
 var acceptedImageFilterTags = map[string]bool{
@@ -167,7 +167,7 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 			} else {
 				continue
 			}
-		} else if danglingOnly {
+		} else if danglingOnly && len(newImage.RepoTags) > 0 {
 			continue
 		}
 

@@ -6,7 +6,6 @@ description = "Describes how to use the fluentd logging driver."
 keywords = ["Fluentd, docker, logging, driver"]
 [menu.main]
 parent = "smn_logging"
-weight=2
 +++
 <![end-metadata]-->
 
@@ -40,7 +39,7 @@ Some options are supported by specifying `--log-opt` as many times as needed:
 Configure the default logging driver by passing the
 `--log-driver` option to the Docker daemon:
 
-    docker daemon --log-driver=fluentd
+    dockerd --log-driver=fluentd
 
 To set the logging driver for a specific container, pass the
 `--log-driver` option to `docker run`:
@@ -90,7 +89,7 @@ and [its documents](http://docs.fluentd.org/).
 To use this logging driver, start the `fluentd` daemon on a host. We recommend
 that you use [the Fluentd docker
 image](https://hub.docker.com/r/fluent/fluentd/). This image is
-especially useful if you want to aggregate multiple container logs on a each
+especially useful if you want to aggregate multiple container logs on each
 host then, later, transfer the logs to another Fluentd node to create an
 aggregate store.
 
@@ -108,7 +107,7 @@ aggregate store.
 
 2. Launch Fluentd container with this configuration file:
 
-        $ docker run -it -p 24224:24224 -v /path/to/conf/test.conf:/fluentd/etc -e FLUENTD_CONF=test.conf fluent/fluentd:latest
+        $ docker run -it -p 24224:24224 -v /path/to/conf/test.conf:/fluentd/etc/test.conf -e FLUENTD_CONF=test.conf fluent/fluentd:latest
 
 3. Start one or more containers with the `fluentd` logging driver:
 
