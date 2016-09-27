@@ -19,9 +19,9 @@ Labels:
 {{- range $k, $v := .Labels }}
  {{ $k }}{{if $v }}={{ $v }}{{ end }}
 {{- end }}{{ end }}
-Mode:
-{{- if .IsModeGlobal }}		Global
-{{- else }}		Replicated
+Service Mode:
+{{- if .IsModeGlobal }}	Global
+{{- else if .IsModeReplicated }}	Replicated
 {{- if .ModeReplicatedReplicas }}
  Replicas:	{{ .ModeReplicatedReplicas }}
 {{- end }}{{ end }}
@@ -73,25 +73,24 @@ Mounts:
 Resources:
 {{- if .HasResourceReservations }}
  Reservations:
-{{- end }}
 {{- if gt .ResourceReservationNanoCPUs 0.0 }}
   CPU:		{{ .ResourceReservationNanoCPUs }}
 {{- end }}
 {{- if .ResourceReservationMemory }}
   Memory:	{{ .ResourceReservationMemory }}
-{{- end }}
+{{- end }}{{ end }}
 {{- if .HasResourceLimits }}
  Limits:
-{{- end }}
 {{- if gt .ResourceLimitsNanoCPUs 0.0 }}
   CPU:		{{ .ResourceLimitsNanoCPUs }}
 {{- end }}
 {{- if .ResourceLimitMemory }}
   Memory:	{{ .ResourceLimitMemory }}
-{{- end }}{{ end }}
+{{- end }}{{ end }}{{ end }}
 {{- if .Networks }}
 Networks:
 {{- range $network := .Networks }} {{ $network }}{{ end }} {{ end }}
+Endpoint Mode:	{{ .EndpointMode }}
 {{- if .Ports }}
 Ports:
 {{- range $port := .Ports }}
@@ -154,6 +153,10 @@ func (ctx *serviceInspectContext) Labels() map[string]string {
 
 func (ctx *serviceInspectContext) IsModeGlobal() bool {
 	return ctx.Service.Spec.Mode.Global != nil
+}
+
+func (ctx *serviceInspectContext) IsModeReplicated() bool {
+	return ctx.Service.Spec.Mode.Replicated != nil
 }
 
 func (ctx *serviceInspectContext) ModeReplicatedReplicas() *uint64 {
@@ -278,6 +281,14 @@ func (ctx *serviceInspectContext) Networks() []string {
 		out = append(out, n.Target)
 	}
 	return out
+}
+
+func (ctx *serviceInspectContext) EndpointMode() string {
+	if ctx.Service.Spec.EndpointSpec == nil {
+		return ""
+	}
+
+	return string(ctx.Service.Spec.EndpointSpec.Mode)
 }
 
 func (ctx *serviceInspectContext) Ports() []swarm.PortConfig {
