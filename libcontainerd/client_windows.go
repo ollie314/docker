@@ -40,15 +40,15 @@ const defaultOwner = "docker"
 // Create is the entrypoint to create a container from a spec, and if successfully
 // created, start it too. Table below shows the fields required for HCS JSON calling parameters,
 // where if not populated, is omitted.
-// +-----------------+--------------------------------------------+--------------------------------------------+
-// |                 | Isolation=Process                          | Isolation=Hyper-V                          |
-// +-----------------+--------------------------------------------+--------------------------------------------+
-// | VolumePath      | \\?\\Volume{GUIDa}                         |                                            |
-// | LayerFolderPath | %root%\windowsfilter\containerID           |                                            |
-// | Layers[]        | ID=GUIDb;Path=%root%\windowsfilter\layerID | ID=GUIDb;Path=%root%\windowsfilter\layerID |
-// | SandboxPath     |                                            | %root%\windowsfilter                       |
-// | HvRuntime       |                                            | ImagePath=%root%\BaseLayerID\UtilityVM     |
-// +-----------------+--------------------------------------------+--------------------------------------------+
+// +-----------------+--------------------------------------------+---------------------------------------------------+
+// |                 | Isolation=Process                          | Isolation=Hyper-V                                 |
+// +-----------------+--------------------------------------------+---------------------------------------------------+
+// | VolumePath      | \\?\\Volume{GUIDa}                         |                                                   |
+// | LayerFolderPath | %root%\windowsfilter\containerID           | %root%\windowsfilter\containerID (servicing only) |
+// | Layers[]        | ID=GUIDb;Path=%root%\windowsfilter\layerID | ID=GUIDb;Path=%root%\windowsfilter\layerID        |
+// | SandboxPath     |                                            | %root%\windowsfilter                              |
+// | HvRuntime       |                                            | ImagePath=%root%\BaseLayerID\UtilityVM            |
+// +-----------------+--------------------------------------------+---------------------------------------------------+
 //
 // Isolation=Process example:
 //
@@ -113,12 +113,12 @@ func (clnt *client) Create(containerID string, checkpoint string, checkpointDir 
 				configuration.ProcessorWeight = uint64(*spec.Windows.Resources.CPU.Shares)
 			}
 			if spec.Windows.Resources.CPU.Percent != nil {
-				configuration.ProcessorMaximum = int64(*spec.Windows.Resources.CPU.Percent * 100) // ProcessorMaximum is a value between 1 and 10000
+				configuration.ProcessorMaximum = int64(*spec.Windows.Resources.CPU.Percent) * 100 // ProcessorMaximum is a value between 1 and 10000
 			}
 		}
 		if spec.Windows.Resources.Memory != nil {
 			if spec.Windows.Resources.Memory.Limit != nil {
-				configuration.MemoryMaximumInMB = int64(*spec.Windows.Resources.Memory.Limit / 1024 / 1024)
+				configuration.MemoryMaximumInMB = int64(*spec.Windows.Resources.Memory.Limit) / 1024 / 1024
 			}
 		}
 		if spec.Windows.Resources.Storage != nil {
@@ -162,16 +162,30 @@ func (clnt *client) Create(containerID string, checkpoint string, checkpointDir 
 	}
 
 	if configuration.HvPartition {
-		// Make sure the Utility VM image is present in the base layer directory.
+		// Find the upper-most utility VM image, since the utility VM does not
+		// use layering in RS1.
 		// TODO @swernli/jhowardmsft at some point post RS1 this may be re-locatable.
-		configuration.HvRuntime = &hcsshim.HvRuntime{ImagePath: filepath.Join(layerOpt.LayerPaths[len(layerOpt.LayerPaths)-1], "UtilityVM")}
-		if _, err := os.Stat(configuration.HvRuntime.ImagePath); os.IsNotExist(err) {
-			return fmt.Errorf("utility VM image '%s' could not be found", configuration.HvRuntime.ImagePath)
+		var uvmImagePath string
+		for _, path := range layerOpt.LayerPaths {
+			fullPath := filepath.Join(path, "UtilityVM")
+			_, err := os.Stat(fullPath)
+			if err == nil {
+				uvmImagePath = fullPath
+				break
+			}
+			if !os.IsNotExist(err) {
+				return err
+			}
 		}
+		if uvmImagePath == "" {
+			return errors.New("utility VM image could not be found")
+		}
+		configuration.HvRuntime = &hcsshim.HvRuntime{ImagePath: uvmImagePath}
 	} else {
 		configuration.VolumePath = spec.Root.Path
-		configuration.LayerFolderPath = layerOpt.LayerFolderPath
 	}
+
+	configuration.LayerFolderPath = layerOpt.LayerFolderPath
 
 	for _, layerPath := range layerOpt.LayerPaths {
 		_, filename := filepath.Split(layerPath)
@@ -328,6 +342,7 @@ func (clnt *client) AddProcess(ctx context.Context, containerID, processFriendly
 
 	// Tell the engine to attach streams back to the client
 	if err := clnt.backend.AttachStreams(processFriendlyName, *iopipe); err != nil {
+		clnt.lock(containerID)
 		return err
 	}
 
