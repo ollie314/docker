@@ -1,12 +1,8 @@
-<!--[metadata]>
-+++
-title = "volume ls"
-description = "The volume ls command description and usage"
-keywords = ["volume, list"]
-[menu.main]
-parent = "smn_cli"
-+++
-<![end-metadata]-->
+---
+title: "volume ls"
+description: "The volume ls command description and usage"
+keywords: ["volume, list"]
+---
 
 # volume ls
 
@@ -29,7 +25,7 @@ Options:
   -q, --quiet          Only display volume names
 ```
 
-Lists all the volumes Docker knows about. You can filter using the `-f` or `--filter` flag. Refer to the [filtering](#filtering) section for more information about available filter options.
+List all the volumes Docker knows about. You can filter using the `-f` or `--filter` flag. Refer to the [filtering](#filtering) section for more information about available filter options.
 
 Example output:
 
@@ -103,7 +99,7 @@ regardless of its value.
 ```bash
 $ docker volume ls --filter label=is-timelord
 
-DRIVER              NAME
+DRIVER              VOLUME NAME
 local               daleks
 local               the-doctor
 ```
@@ -116,7 +112,7 @@ Filtering on both `key` *and* `value` of the label, produces the expected result
 ```bash
 $ docker volume ls --filter label=is-timelord=yes
 
-DRIVER              NAME
+DRIVER              VOLUME NAME
 local               the-doctor
 ```
 
@@ -126,7 +122,7 @@ should be met;
 ```bash
 $ docker volume ls --filter label=is-timelord=yes --filter label=is-timelord=no
 
-DRIVER              NAME
+DRIVER              VOLUME NAME
 ```
 
 ### name
@@ -174,4 +170,5 @@ vol3: local
 * [volume create](volume_create.md)
 * [volume inspect](volume_inspect.md)
 * [volume rm](volume_rm.md)
-* [Understand Data Volumes](../../tutorials/dockervolumes.md)
+* [volume prune](volume_prune.md)
+* [Understand Data Volumes](https://docs.docker.com/engine/tutorials/dockervolumes/)

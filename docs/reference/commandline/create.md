@@ -1,12 +1,8 @@
-<!--[metadata]>
-+++
-title = "create"
-description = "The create command description and usage"
-keywords = ["docker, create, container"]
-[menu.main]
-parent = "smn_cli"
-+++
-<![end-metadata]-->
+---
+title: "create"
+description: "The create command description and usage"
+keywords: ["docker, create, container"]
+---
 
 # create
 
@@ -98,6 +94,7 @@ Options:
                                     Unit is optional and can be `b` (bytes), `k` (kilobytes), `m` (megabytes),
                                     or `g` (gigabytes). If you omit the unit, the system uses bytes.
       --stop-signal string          Signal to stop a container, SIGTERM by default (default "SIGTERM")
+      --stop-timeout=10             Timeout (in seconds) to stop a container
       --storage-opt value           Storage driver options for the container (default [])
       --sysctl value                Sysctl options (default map[])
       --tmpfs value                 Mount a tmpfs directory (default [])
@@ -171,8 +168,13 @@ Set storage driver options per container.
     $ docker create -it --storage-opt size=120G fedora /bin/bash
 
 This (size) will allow to set the container rootfs size to 120G at creation time. 
-User cannot pass a size less than the Default BaseFS Size. This option is only 
-available for the `devicemapper`, `btrfs`, `windowsfilter`, and `zfs` graph drivers.
+This option is only available for the `devicemapper`, `btrfs`, `overlay2`,
+`windowsfilter` and `zfs` graph drivers.
+For the `devicemapper`, `btrfs`, `windowsfilter` and `zfs` graph drivers,
+user cannot pass a size less than the Default BaseFS Size.
+For the `overlay2` storage driver, the size option is only available if the
+backing fs is `xfs` and mounted with the `pquota` mount option.
+Under these conditions, user can pass any size less then the backing fs size.
 
 ### Specify isolation technology for container (--isolation)
 

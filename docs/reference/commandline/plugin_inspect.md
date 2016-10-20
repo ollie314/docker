@@ -1,13 +1,9 @@
-<!--[metadata]>
-+++
-title = "plugin inspect"
-description = "The plugin inspect command description and usage"
-keywords = ["plugin, inspect"]
-advisory = "experimental"
-[menu.main]
-parent = "smn_cli"
-+++
-<![end-metadata]-->
+---
+title: "plugin inspect"
+description: "The plugin inspect command description and usage"
+keywords: ["plugin, inspect"]
+advisory: "experimental"
+---
 
 # plugin inspect (experimental)
 
@@ -17,7 +13,7 @@ Usage:  docker plugin inspect [OPTIONS] PLUGIN [PLUGIN...]
 Display detailed information on one or more plugins
 
 Options:
-      -f, --format string   Format the output using the given go template
+      -f, --format string   Format the output using the given Go template
           --help            Print usage
 ```
 

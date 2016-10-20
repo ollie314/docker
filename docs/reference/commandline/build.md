@@ -1,12 +1,8 @@
-<!--[metadata]>
-+++
-title = "build"
-description = "The build command description and usage"
-keywords = ["build, docker, image"]
-[menu.main]
-parent = "smn_cli"
-+++
-<![end-metadata]-->
+---
+title: "build"
+description: "The build command description and usage"
+keywords: ["build, docker, image"]
+---
 
 # build
 
@@ -102,6 +98,7 @@ or pipe the file in via `STDIN`. To pipe a Dockerfile from `STDIN`:
 
 ```bash
 $ docker build http://server/context.tar.gz
+```
 
 The download operation will be performed on the host the Docker daemon is
 running on, which is not necessarily the same host from which the build command

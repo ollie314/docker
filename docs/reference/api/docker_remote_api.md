@@ -1,13 +1,8 @@
-<!--[metadata]>
-+++
-title = "Remote API"
-description = "API Documentation for Docker"
-keywords = ["API, Docker, rcli, REST,  documentation"]
-[menu.main]
-parent = "engine_remoteapi"
-weight=-99
-+++
-<![end-metadata]-->
+---
+title: "Remote API"
+description: "API Documentation for Docker"
+keywords: ["API, Docker, rcli, REST,  documentation"]
+---
 
 # Docker Remote API
 
@@ -133,6 +128,9 @@ This section lists each version from latest to oldest.  Each listing includes a 
 * `DELETE /containers/(name)` endpoint now returns an error of `removal of container name is already in progress` with status code of 400, when container name is in a state of removal in progress.
 * `GET /containers/json` now supports a `is-task` filter to filter
   containers that are tasks (part of a service in swarm mode).
+* `POST /containers/create` now takes `StopTimeout` field.
+* `POST /services/create` and `POST /services/(id or name)/update` now accept `Monitor` and `MaxFailureRatio` parameters, which control the response to failures during service updates.
+* `GET /networks/(name)` now returns `Created`.
 
 ### v1.24 API changes
 
@@ -241,6 +239,7 @@ This section lists each version from latest to oldest.  Each listing includes a 
 * `GET /info` now lists engine version information and return the information of `CPUShares` and `Cpuset`.
 * `GET /containers/json` will return `ImageID` of the image used by container.
 * `POST /exec/(name)/start` will now return an HTTP 409 when the container is either stopped or paused.
+* `POST /containers/create` now takes `KernelMemory` in HostConfig to specify kernel memory limit.
 * `GET /containers/(name)/json` now accepts a `size` parameter. Setting this parameter to '1' returns container size information in the `SizeRw` and `SizeRootFs` fields.
 * `GET /containers/(name)/json` now returns a `NetworkSettings.Networks` field,
   detailing network settings per network. This field deprecates the

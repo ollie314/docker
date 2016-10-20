@@ -1,13 +1,8 @@
-<!--[metadata]>
-+++
-title = "Plugins API"
-description = "How to write Docker plugins extensions "
-keywords = ["API, Usage, plugins, documentation, developer"]
-[menu.main]
-parent = "engine_extend"
-weight=7
-+++
-<![end-metadata]-->
+---
+title: "Plugins API"
+description: "How to write Docker plugins extensions "
+keywords: ["API, Usage, plugins, documentation, developer"]
+---
 
 # Docker Plugin API
 
@@ -126,6 +121,7 @@ ExecStart=/usr/lib/docker/your-plugin
 WantedBy=multi-user.target
 ```
 The `socket` file (for example `/lib/systemd/system/your-plugin.socket`):
+
 ```
 [Unit]
 Description=Your plugin

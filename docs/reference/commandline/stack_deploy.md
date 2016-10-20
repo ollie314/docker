@@ -1,13 +1,9 @@
-<!--[metadata]>
-+++
-title = "stack deploy"
-description = "The stack deploy command description and usage"
-keywords = ["stack, deploy, up"]
-advisory = "experimental"
-[menu.main]
-parent = "smn_cli"
-+++
-<![end-metadata]-->
+---
+title: "stack deploy"
+description: "The stack deploy command description and usage"
+keywords: ["stack, deploy, up"]
+advisory: "experimental"
+---
 
 # stack deploy (experimental)
 
@@ -57,5 +53,5 @@ axqh55ipl40h  vossibility-stack_vossibility-collector  1 icecrime/vossibility-co
 * [stack config](stack_config.md)
 * [stack rm](stack_rm.md)
 * [stack services](stack_services.md)
-* [stack tasks](stack_tasks.md)
+* [stack ps](stack_ps.md)
 * [stack ls](stack_ls.md)

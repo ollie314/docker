@@ -1,13 +1,8 @@
-<!--[metadata]>
-+++
-title = "Remote API v1.24"
-description = "API Documentation for Docker"
-keywords = ["API, Docker, rcli, REST,  documentation"]
-[menu.main]
-parent="engine_remoteapi"
-weight=-5
-+++
-<![end-metadata]-->
+---
+title: "Remote API v1.24"
+description: "API Documentation for Docker"
+keywords: ["API, Docker, rcli, REST,  documentation"]
+---
 
 # Docker Remote API v1.24
 
@@ -374,8 +369,8 @@ Create a container
 -   **Tty** - Boolean value, Attach standard streams to a `tty`, including `stdin` if it is not closed.
 -   **OpenStdin** - Boolean value, opens `stdin`,
 -   **StdinOnce** - Boolean value, close `stdin` after the 1 attached client disconnects.
--   **Env** - A list of environment variables in the form of `["VAR=value"[,"VAR2=value2"]]`
--   **Labels** - Adds a map of labels to a container. To specify a map: `{"key":"value"[,"key2":"value2"]}`
+-   **Env** - A list of environment variables in the form of `["VAR=value", ...]`
+-   **Labels** - Adds a map of labels to a container. To specify a map: `{"key":"value", ... }`
 -   **Cmd** - Command to run specified as a string or an array of strings.
 -   **Entrypoint** - Set the entry point for the container as a string or an array
       of strings.
@@ -1792,7 +1787,7 @@ a base64-encoded AuthConfig object.
 
         ```
     {
-            "registrytoken": "9cbaf023786cd7..."
+            "identitytoken": "9cbaf023786cd7..."
     }
         ```
 
@@ -2702,7 +2697,7 @@ See the [image tarball format](#image-tarball-format) for more details.
 
 **Example response**:
 
-If the "quiet" query parameter is set to `true` / `1` (`?quiet=1`), progress 
+If the "quiet" query parameter is set to `true` / `1` (`?quiet=1`), progress
 details are suppressed, and only a confirmation message is returned once the
 action completes.
 
@@ -4092,7 +4087,7 @@ JSON Parameters:
 - **Annotations** – Optional medata to associate with the service.
     - **Name** – User-defined name for the service.
     - **Labels** – A map of labels to associate with the service (e.g.,
-      `{"key":"value"[,"key2":"value2"]}`).
+      `{"key":"value", "key2":"value2"}`).
 - **Role** - Role of the node (worker/manager).
 - **Availability** - Availability of the node (active/pause/drain).
 
@@ -4585,7 +4580,7 @@ image](#create-an-image) section for more details.
 **JSON Parameters**:
 
 - **Name** – User-defined name for the service.
-- **Labels** – A map of labels to associate with the service (e.g., `{"key":"value"[,"key2":"value2"]}`).
+- **Labels** – A map of labels to associate with the service (e.g., `{"key":"value", "key2":"value2"}`).
 - **TaskTemplate** – Specification of the tasks to start as part of the new service.
     - **ContainerSpec** - Container settings for containers started as part of this task.
         - **Image** – A string specifying the image name to use for the container.
@@ -4595,7 +4590,7 @@ image](#create-an-image) section for more details.
         - **Dir** – A string specifying the working directory for commands to run in.
         - **User** – A string value specifying the user inside the container.
         - **Labels** – A map of labels to associate with the service (e.g.,
-          `{"key":"value"[,"key2":"value2"]}`).
+          `{"key":"value", "key2":"value2"}`).
         - **Mounts** – Specification for mounts to be added to containers
           created as part of the service.
             - **Target** – Container path.
@@ -4827,7 +4822,7 @@ image](#create-an-image) section for more details.
 **JSON Parameters**:
 
 - **Name** – User-defined name for the service.
-- **Labels** – A map of labels to associate with the service (e.g., `{"key":"value"[,"key2":"value2"]}`).
+- **Labels** – A map of labels to associate with the service (e.g., `{"key":"value", "key2":"value2"}`).
 - **TaskTemplate** – Specification of the tasks to start as part of the new service.
     - **ContainerSpec** - Container settings for containers started as part of this task.
         - **Image** – A string specifying the image name to use for the container.
@@ -4837,7 +4832,7 @@ image](#create-an-image) section for more details.
         - **Dir** – A string specifying the working directory for commands to run in.
         - **User** – A string value specifying the user inside the container.
         - **Labels** – A map of labels to associate with the service (e.g.,
-          `{"key":"value"[,"key2":"value2"]}`).
+          `{"key":"value", "key2":"value2"}`).
         - **Mounts** – Specification for mounts to be added to containers created as part of the new
           service.
             - **Target** – Container path.

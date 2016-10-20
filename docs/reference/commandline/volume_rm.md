@@ -1,12 +1,9 @@
-<!--[metadata]>
-+++
-title = "volume rm"
-description = "the volume rm command description and usage"
-keywords = ["volume, rm"]
-[menu.main]
-parent = "smn_cli"
-+++
-<![end-metadata]-->
+---
+title: "volume rm"
+description: "the volume rm command description and usage"
+keywords: ["volume, rm"]
+---
+
 
 # volume rm
 
@@ -33,4 +30,5 @@ Remove one or more volumes. You cannot remove a volume that is in use by a conta
 * [volume create](volume_create.md)
 * [volume inspect](volume_inspect.md)
 * [volume ls](volume_ls.md)
-* [Understand Data Volumes](../../tutorials/dockervolumes.md)
+* [volume prune](volume_prune.md)
+* [Understand Data Volumes](https://docs.docker.com/engine/tutorials/dockervolumes/)

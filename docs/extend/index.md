@@ -1,17 +1,12 @@
-<!--[metadata]>
-+++
-aliases = [
+---
+aliases: [
 "/engine/extend/"
 ]
-title = "Managed plugin system"
-description = "How develop and use a plugin with the managed plugin system"
-keywords = ["API, Usage, plugins, documentation, developer"]
-advisory = "experimental"
-[menu.main]
-parent = "engine_extend"
-weight=1
-+++
-<![end-metadata]-->
+title: "Managed plugin system"
+description: "How develop and use a plugin with the managed plugin system"
+keywords: ["API, Usage, plugins, documentation, developer"]
+advisory: "experimental"
+---
 
 # Docker Engine managed plugin system
 
@@ -41,7 +36,7 @@ Hub or on a private registry.
 
 You install the plugin using a single command: `docker plugin install <PLUGIN>`.
 The `plugin install` command pulls the plugin from the Docker Hub or private
-registry. If necessary the CLI prompts you to accept any privilige requriements.
+registry. If necessary the CLI prompts you to accept any privilege requriements.
 For example the plugin may require access to a device on the host system.
 Finally it enables the plugin.
 
@@ -68,7 +63,7 @@ to create a volume.
     The plugin requests 2 privileges, the `CAP_SYS_ADMIN` capability to be able
     to do mount inside the plugin and `host networking`.
 
-2. Check for a value of `true` the `ENABLED` column to verify the plugin
+2.  Check for a value of `true` the `ENABLED` column to verify the plugin
 started without error.
 
     ```bash
@@ -78,7 +73,7 @@ started without error.
     vieux/sshfs         latest              true
     ```
 
-3. Create a volume using the plugin.
+3.  Create a volume using the plugin.
 
     ```bash
     $ docker volume create \
@@ -97,12 +92,12 @@ started without error.
     <content of /remote on machine 1.2.3.4>
     ```
 
-5. Verify the plugin successfully created the volume.
+5.  Verify the plugin successfully created the volume.
 
     ```bash
     $ docker volume ls
 
-    DRIVER              NAME
+    DRIVER              VOLUME NAME
     vieux/sshfs         sshvolume
     ```
 

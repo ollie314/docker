@@ -1,12 +1,8 @@
-<!--[metadata]>
-+++
-title = "service inspect"
-description = "The service inspect command description and usage"
-keywords = ["service, inspect"]
-[menu.main]
-parent = "smn_cli"
-+++
-<![end-metadata]-->
+---
+title: "service inspect"
+description: "The service inspect command description and usage"
+keywords: ["service, inspect"]
+---
 
 # service inspect
 
@@ -16,7 +12,7 @@ Usage:  docker service inspect [OPTIONS] SERVICE [SERVICE...]
 Display detailed information on one or more services
 
 Options:
-  -f, --format string   Format the output using the given go template
+  -f, --format string   Format the output using the given Go template
       --help            Print usage
       --pretty          Print the information in a human friendly format.
 ```

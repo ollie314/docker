@@ -1,12 +1,8 @@
-<!--[metadata]>
-+++
-title = "events"
-description = "The events command description and usage"
-keywords = ["events, container, report"]
-[menu.main]
-parent = "smn_cli"
-+++
-<![end-metadata]-->
+---
+title: "events"
+description: "The events command description and usage"
+keywords: ["events, container, report"]
+---
 
 # events
 
@@ -17,7 +13,7 @@ Get real time events from the server
 
 Options:
   -f, --filter value   Filter output based on conditions provided (default [])
-      --format string  Format the output using the given go template
+      --format string  Format the output using the given Go template
       --help           Print usage
       --since string   Show all events created since timestamp
       --until string   Stream events until this timestamp

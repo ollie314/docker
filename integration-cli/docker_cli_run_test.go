@@ -3432,16 +3432,16 @@ func (s *DockerTrustSuite) TestTrustedRunFromBadTrustServer(c *check.C) {
 		c.Fatalf("Missing expected output on trusted push:\n%s", out)
 	}
 
-	// Now, try running with the original client from this new trust server. This should fallback to our cached timestamp and metadata.
+	// Now, try running with the original client from this new trust server. This should fail because the new root is invalid.
 	runCmd = exec.Command(dockerBinary, "run", repoName)
 	s.trustedCmd(runCmd)
 	out, _, err = runCommandWithOutput(runCmd)
 
-	if err != nil {
-		c.Fatalf("Error falling back to cached trust data: %s\n%s", err, out)
+	if err == nil {
+		c.Fatalf("Continuing with cached data even though it's an invalid root rotation: %s\n%s", err, out)
 	}
-	if !strings.Contains(string(out), "Error while downloading remote metadata, using cached timestamp") {
-		c.Fatalf("Missing expected output on trusted push:\n%s", out)
+	if !strings.Contains(out, "could not rotate trust to a new trusted root") {
+		c.Fatalf("Missing expected output on trusted run:\n%s", out)
 	}
 }
 
@@ -4537,4 +4537,23 @@ func (s *DockerSuite) TestRunCredentialSpecFailures(c *check.C) {
 		c.Assert(err, checker.NotNil, check.Commentf("%s expected non-nil err", attempt.value))
 		c.Assert(err.Error(), checker.Contains, attempt.expectedError, check.Commentf("%s expected %s got %s", attempt.value, attempt.expectedError, err))
 	}
+}
+
+// Windows specific test to ensure that a servicing app container is started
+// if necessary once a container exits. It does this by forcing a no-op
+// servicing event and verifying the event from Hyper-V-Compute
+func (s *DockerSuite) TestRunServicingContainer(c *check.C) {
+	testRequires(c, DaemonIsWindows, SameHostDaemon)
+
+	out, _ := dockerCmd(c, "run", "-d", WindowsBaseImage, "cmd", "/c", "mkdir c:\\programdata\\Microsoft\\Windows\\ContainerUpdates\\000_000_d99f45d0-ffc8-4af7-bd9c-ea6a62e035c9_200 && sc control cexecsvc 255")
+	containerID := strings.TrimSpace(out)
+	err := waitExited(containerID, 60*time.Second)
+	c.Assert(err, checker.IsNil)
+
+	cmd := exec.Command("powershell", "echo", `(Get-WinEvent -ProviderName "Microsoft-Windows-Hyper-V-Compute" -FilterXPath 'Event[System[EventID=2010]]' -MaxEvents 1).Message`)
+	out2, _, err := runCommandWithOutput(cmd)
+	c.Assert(err, checker.IsNil)
+	c.Assert(out2, checker.Contains, `"Servicing":true`, check.Commentf("Servicing container does not appear to have been started: %s", out2))
+	c.Assert(out2, checker.Contains, `Windows Container (Servicing)`, check.Commentf("Didn't find 'Windows Container (Servicing): %s", out2))
+	c.Assert(out2, checker.Contains, containerID+"_servicing", check.Commentf("Didn't find '%s_servicing': %s", containerID+"_servicing", out2))
 }

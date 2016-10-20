@@ -40,6 +40,7 @@ import (
 	"github.com/docker/docker/pkg/fileutils"
 	"github.com/docker/docker/pkg/graphdb"
 	"github.com/docker/docker/pkg/idtools"
+	"github.com/docker/docker/pkg/plugingetter"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/registrar"
 	"github.com/docker/docker/pkg/signal"
@@ -47,7 +48,6 @@ import (
 	"github.com/docker/docker/pkg/sysinfo"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/pkg/truncindex"
-	plugingetter "github.com/docker/docker/plugin/getter"
 	pluginstore "github.com/docker/docker/plugin/store"
 	"github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
@@ -96,7 +96,7 @@ type Daemon struct {
 	gidMaps                   []idtools.IDMap
 	layerStore                layer.Store
 	imageStore                image.Store
-	pluginStore               *pluginstore.Store
+	PluginStore               *pluginstore.Store
 	nameIndex                 *registrar.Registrar
 	linkIndex                 *linkIndex
 	containerd                libcontainerd.Client
@@ -153,13 +153,15 @@ func (daemon *Daemon) restore() error {
 	removeContainers := make(map[string]*container.Container)
 	restartContainers := make(map[*container.Container]chan struct{})
 	activeSandboxes := make(map[string]interface{})
-	for _, c := range containers {
+	for id, c := range containers {
 		if err := daemon.registerName(c); err != nil {
 			logrus.Errorf("Failed to register container %s: %s", c.ID, err)
+			delete(containers, id)
 			continue
 		}
 		if err := daemon.Register(c); err != nil {
 			logrus.Errorf("Failed to register container %s: %s", c.ID, err)
+			delete(containers, id)
 			continue
 		}
 
@@ -559,7 +561,7 @@ func NewDaemon(config *Config, registryService registry.Service, containerdRemot
 		driverName = config.GraphDriver
 	}
 
-	d.pluginStore = pluginstore.NewStore(config.Root)
+	d.PluginStore = pluginstore.NewStore(config.Root)
 
 	d.layerStore, err = layer.NewStoreFromOptions(layer.StoreOptions{
 		StorePath:                 config.Root,
@@ -568,7 +570,7 @@ func NewDaemon(config *Config, registryService registry.Service, containerdRemot
 		GraphDriverOptions:        config.GraphOptions,
 		UIDMaps:                   uidMaps,
 		GIDMaps:                   gidMaps,
-		PluginGetter:              d.pluginStore,
+		PluginGetter:              d.PluginStore,
 	})
 	if err != nil {
 		return nil, err
@@ -690,6 +692,8 @@ func NewDaemon(config *Config, registryService registry.Service, containerdRemot
 }
 
 func (daemon *Daemon) shutdownContainer(c *container.Container) error {
+	stopTimeout := c.StopTimeout()
+
 	// TODO(windows): Handle docker restart with paused containers
 	if c.IsPaused() {
 		// To terminate a process in freezer cgroup, we should send
@@ -706,8 +710,8 @@ func (daemon *Daemon) shutdownContainer(c *container.Container) error {
 		if err := daemon.containerUnpause(c); err != nil {
 			return fmt.Errorf("Failed to unpause container %s with error: %v", c.ID, err)
 		}
-		if _, err := c.WaitStop(10 * time.Second); err != nil {
-			logrus.Debugf("container %s failed to exit in 10 seconds of SIGTERM, sending SIGKILL to force", c.ID)
+		if _, err := c.WaitStop(time.Duration(stopTimeout) * time.Second); err != nil {
+			logrus.Debugf("container %s failed to exit in %d second of SIGTERM, sending SIGKILL to force", c.ID, stopTimeout)
 			sig, ok := signal.SignalMap["KILL"]
 			if !ok {
 				return fmt.Errorf("System does not support SIGKILL")
@@ -719,13 +723,37 @@ func (daemon *Daemon) shutdownContainer(c *container.Container) error {
 			return err
 		}
 	}
-	// If container failed to exit in 10 seconds of SIGTERM, then using the force
-	if err := daemon.containerStop(c, 10); err != nil {
+	// If container failed to exit in stopTimeout seconds of SIGTERM, then using the force
+	if err := daemon.containerStop(c, stopTimeout); err != nil {
 		return fmt.Errorf("Failed to stop container %s with error: %v", c.ID, err)
 	}
 
 	c.WaitStop(-1 * time.Second)
 	return nil
+}
+
+// ShutdownTimeout returns the shutdown timeout based on the max stopTimeout of the containers,
+// and is limited by daemon's ShutdownTimeout.
+func (daemon *Daemon) ShutdownTimeout() int {
+	// By default we use daemon's ShutdownTimeout.
+	shutdownTimeout := daemon.configStore.ShutdownTimeout
+
+	graceTimeout := 5
+	if daemon.containers != nil {
+		for _, c := range daemon.containers.List() {
+			if shutdownTimeout >= 0 {
+				stopTimeout := c.StopTimeout()
+				if stopTimeout < 0 {
+					shutdownTimeout = -1
+				} else {
+					if stopTimeout+graceTimeout > shutdownTimeout {
+						shutdownTimeout = stopTimeout + graceTimeout
+					}
+				}
+			}
+		}
+	}
+	return shutdownTimeout
 }
 
 // Shutdown stops the daemon.
@@ -742,7 +770,7 @@ func (daemon *Daemon) Shutdown() error {
 	}
 
 	if daemon.containers != nil {
-		logrus.Debug("starting clean shutdown of all containers...")
+		logrus.Debugf("start clean shutdown of all containers with a %d seconds timeout...", daemon.configStore.ShutdownTimeout)
 		daemon.containers.ApplyAll(func(c *container.Container) {
 			if !c.IsRunning() {
 				return
@@ -926,7 +954,7 @@ func (daemon *Daemon) configureVolumes(rootUID, rootGID int) (*store.VolumeStore
 		return nil, err
 	}
 
-	volumedrivers.RegisterPluginGetter(daemon.pluginStore)
+	volumedrivers.RegisterPluginGetter(daemon.PluginStore)
 
 	if !volumedrivers.Register(volumesDriver, volumesDriver.Name()) {
 		return nil, fmt.Errorf("local volume driver could not be registered")
@@ -968,6 +996,7 @@ func (daemon *Daemon) initDiscovery(config *Config) error {
 // - Daemon max concurrent uploads
 // - Cluster discovery (reconfigure and restart).
 // - Daemon live restore
+// - Daemon shutdown timeout (in seconds).
 func (daemon *Daemon) Reload(config *Config) (err error) {
 
 	daemon.configStore.reloadLock.Lock()
@@ -1028,6 +1057,11 @@ func (daemon *Daemon) Reload(config *Config) (err error) {
 		daemon.uploadManager.SetConcurrency(*daemon.configStore.MaxConcurrentUploads)
 	}
 
+	if config.IsValueSet("shutdown-timeout") {
+		daemon.configStore.ShutdownTimeout = config.ShutdownTimeout
+		logrus.Debugf("Reset Shutdown Timeout: %d", daemon.configStore.ShutdownTimeout)
+	}
+
 	// We emit daemon reload event here with updatable configurations
 	attributes["debug"] = fmt.Sprintf("%t", daemon.configStore.Debug)
 	attributes["live-restore"] = fmt.Sprintf("%t", daemon.configStore.LiveRestoreEnabled)
@@ -1047,6 +1081,7 @@ func (daemon *Daemon) Reload(config *Config) (err error) {
 	}
 	attributes["max-concurrent-downloads"] = fmt.Sprintf("%d", *daemon.configStore.MaxConcurrentDownloads)
 	attributes["max-concurrent-uploads"] = fmt.Sprintf("%d", *daemon.configStore.MaxConcurrentUploads)
+	attributes["shutdown-timeout"] = fmt.Sprintf("%d", daemon.configStore.ShutdownTimeout)
 
 	return nil
 }
@@ -1102,7 +1137,7 @@ func (daemon *Daemon) reloadClusterDiscovery(config *Config) error {
 	if daemon.netController == nil {
 		return nil
 	}
-	netOptions, err := daemon.networkOptions(daemon.configStore, daemon.pluginStore, nil)
+	netOptions, err := daemon.networkOptions(daemon.configStore, daemon.PluginStore, nil)
 	if err != nil {
 		logrus.WithError(err).Warnf("failed to get options with network controller")
 		return nil

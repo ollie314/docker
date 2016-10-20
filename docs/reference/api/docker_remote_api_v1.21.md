@@ -1,13 +1,8 @@
-<!--[metadata]>
-+++
-title = "Remote API v1.21"
-description = "API Documentation for Docker"
-keywords = ["API, Docker, rcli, REST,  documentation"]
-[menu.main]
-parent="engine_remoteapi"
-weight=-2
-+++
-<![end-metadata]-->
+---
+title: "Remote API v1.21"
+description: "API Documentation for Docker"
+keywords: ["API, Docker, rcli, REST,  documentation"]
+---
 
 # Docker Remote API v1.21
 
@@ -231,8 +226,8 @@ Create a container
 -   **Tty** - Boolean value, Attach standard streams to a `tty`, including `stdin` if it is not closed.
 -   **OpenStdin** - Boolean value, opens `stdin`,
 -   **StdinOnce** - Boolean value, close `stdin` after the 1 attached client disconnects.
--   **Env** - A list of environment variables in the form of `["VAR=value"[,"VAR2=value2"]]`
--   **Labels** - Adds a map of labels to a container. To specify a map: `{"key":"value"[,"key2":"value2"]}`
+-   **Env** - A list of environment variables in the form of `["VAR=value", ...]`
+-   **Labels** - Adds a map of labels to a container. To specify a map: `{"key":"value", ... }`
 -   **Cmd** - Command to run specified as a string or an array of strings.
 -   **Entrypoint** - Set the entry point for the container as a string or an array
       of strings.

@@ -1,12 +1,8 @@
-<!--[metadata]>
-+++
-title = "system prune"
-description = "Remove unused data"
-keywords = [system, prune, delete, remove]
-[menu.main]
-parent = "smn_cli"
-+++
-<![end-metadata]-->
+---
+title: "system prune"
+description: "Remove unused data"
+keywords: [system, prune, delete, remove]
+---
 
 # system prune
 
@@ -32,7 +28,8 @@ WARNING! This will remove:
 	- all volumes not used by at least one container
 	- all images without at least one container associated to them
 Are you sure you want to continue? [y/N] y
-Deleted Containers:0998aa37185a1a7036b0e12cf1ac1b6442dcfa30a5c9650a42ed5010046f195b
+Deleted Containers:
+0998aa37185a1a7036b0e12cf1ac1b6442dcfa30a5c9650a42ed5010046f195b
 73958bfb884fa81fa4cc6baf61055667e940ea2357b4036acbbe25a60f442a4d
 
 Deleted Volumes:
@@ -63,7 +60,8 @@ Total reclaimed space: 13.5 MB
 * [volume ls](volume_ls.md)
 * [volume inspect](volume_inspect.md)
 * [volume rm](volume_rm.md)
-* [Understand Data Volumes](../../tutorials/dockervolumes.md)
+* [volume prune](volume_prune.md)
+* [Understand Data Volumes](https://docs.docker.com/engine/tutorials/dockervolumes/)
 * [system df](system_df.md)
 * [container prune](container_prune.md)
 * [image prune](image_prune.md)

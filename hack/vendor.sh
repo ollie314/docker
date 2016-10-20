@@ -50,7 +50,7 @@ esac
 clone git github.com/Azure/go-ansiterm 388960b655244e76e24c75f48631564eaefade62
 clone git github.com/Microsoft/hcsshim v0.5.1
 clone git github.com/Microsoft/go-winio v0.3.5
-clone git github.com/Sirupsen/logrus v0.10.0 # logrus is a common dependency among multiple deps
+clone git github.com/Sirupsen/logrus f76d643702a30fbffecdfe50831e11881c96ceb3 https://github.com/aaronlehmann/logrus
 clone git github.com/docker/libtrust 9cbd2a1374f46905c68a4eb3694a130610adc62a
 clone git github.com/go-check/check 4ed411733c5785b40214c70bce814c3a3a689609 https://github.com/cpuguy83/check.git
 clone git github.com/gorilla/context v1.1
@@ -70,7 +70,7 @@ clone git github.com/RackSec/srslog 365bf33cd9acc21ae1c355209865f17228ca534e
 clone git github.com/imdario/mergo 0.2.1
 
 #get libnetwork packages
-clone git github.com/docker/libnetwork 7b74403be4241aea5b01b56adab5eab82a80698b
+clone git github.com/docker/libnetwork 04025f2a2eebb0d091883e55980dc6916d36842d
 clone git github.com/docker/go-events 18b43f1bc85d9cdd42c05a6cd2d444c7a200a894
 clone git github.com/armon/go-radix e39d623f12e8e41c7b5529e9a9dd67a1e2261f80
 clone git github.com/armon/go-metrics eb0af217e5e9747e41dd5303755356b62d28e3ec
@@ -99,7 +99,7 @@ clone git github.com/mistifyio/go-zfs 22c9b32c84eb0d0c6f4043b6e90fc94073de92fa
 clone git github.com/pborman/uuid v1.0
 
 # get desired notary commit, might also need to be updated in Dockerfile
-clone git github.com/docker/notary v0.3.0
+clone git github.com/docker/notary v0.4.2
 
 clone git google.golang.org/grpc v1.0.1-GA https://github.com/grpc/grpc-go.git
 clone git github.com/miekg/pkcs11 df8ae6ca730422dba20c768ff38ef7d79077a59f
@@ -118,7 +118,7 @@ clone git github.com/golang/protobuf 1f49d83d9aa00e6ce4fc8258c71cc7786aec968a
 # gelf logging driver deps
 clone git github.com/Graylog2/go-gelf aab2f594e4585d43468ac57287b0dece9d806883
 
-clone git github.com/fluent/fluent-logger-golang v1.2.0
+clone git github.com/fluent/fluent-logger-golang v1.2.1
 # fluent-logger-golang deps
 clone git github.com/philhofer/fwd 899e4efba8eaa1fea74175308f3fae18ff3319fa
 clone git github.com/tinylib/msgp 75ee40d2601edf122ef667e2a07d600d4c44490c
@@ -130,6 +130,9 @@ clone git gopkg.in/fsnotify.v1 v1.2.11
 clone git github.com/aws/aws-sdk-go v1.1.30
 clone git github.com/go-ini/ini 060d7da055ba6ec5ea7a31f116332fe5efa04ce0
 clone git github.com/jmespath/go-jmespath 0b12d6b521d83fc7f755e7cfc1b1fbdd35a01a74
+
+# logentries
+clone git github.com/bsphere/le_go d3308aafe090956bc89a65f0769f58251a1b4f03
 
 # gcplogs deps
 clone git golang.org/x/oauth2 2baa8a1b9338cf13d9eeb27696d761155fa480be https://github.com/golang/oauth2.git
@@ -167,7 +170,7 @@ clone git github.com/pkg/errors 01fa4104b9c248c8945d14d9f128454d5b28d595
 
 # cli
 clone git github.com/spf13/cobra v1.4.1 https://github.com/dnephin/cobra.git
-clone git github.com/spf13/pflag cb88ea77998c3f024757528e3305022ab50b43be
+clone git github.com/spf13/pflag dabebe21bf790f782ea4c7bbd2efc430de182afd
 clone git github.com/inconshreveable/mousetrap 76626ae9c91c4f2a10f34cad8ce83ea42c93bb75
 clone git github.com/flynn-archive/go-shlex 3f9db97f856818214da2e1057f8ad84803971cff
 

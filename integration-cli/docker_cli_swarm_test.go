@@ -287,6 +287,15 @@ func (s *DockerSwarmSuite) TestSwarmTaskListFilter(c *check.C) {
 
 	filter := "name=redis-cluster"
 
+	checkNumTasks := func(*check.C) (interface{}, check.CommentInterface) {
+		out, err := d.Cmd("service", "ps", "--filter", filter, name)
+		c.Assert(err, checker.IsNil)
+		return len(strings.Split(out, "\n")) - 2, nil // includes header and nl in last line
+	}
+
+	// wait until all tasks have been created
+	waitAndAssert(c, defaultReconciliationTimeout, checkNumTasks, checker.Equals, 3)
+
 	out, err = d.Cmd("service", "ps", "--filter", filter, name)
 	c.Assert(err, checker.IsNil)
 	c.Assert(out, checker.Contains, name+".1")
@@ -309,6 +318,8 @@ func (s *DockerSwarmSuite) TestSwarmTaskListFilter(c *check.C) {
 	out, err = d.Cmd("service", "create", "--name", name, "--mode=global", "busybox", "top")
 	c.Assert(err, checker.IsNil)
 	c.Assert(strings.TrimSpace(out), checker.Not(checker.Equals), "")
+
+	waitAndAssert(c, defaultReconciliationTimeout, checkNumTasks, checker.Equals, 1)
 
 	filter = "name=redis-cluster"
 	out, err = d.Cmd("service", "ps", "--filter", filter, name)
@@ -338,7 +349,7 @@ func (s *DockerSwarmSuite) TestPsListContainersFilterIsTask(c *check.C) {
 	c.Assert(strings.TrimSpace(out), checker.Not(checker.Equals), "")
 
 	// make sure task has been deployed.
-	waitAndAssert(c, defaultReconciliationTimeout, d.checkServiceRunningTasks(c, name), checker.Equals, 1)
+	waitAndAssert(c, defaultReconciliationTimeout, d.checkServiceRunningTasks(name), checker.Equals, 1)
 
 	// Filter non-tasks
 	out, err = d.Cmd("ps", "-a", "-q", "--filter=is-task=false")

@@ -275,10 +275,12 @@ func (cli *DaemonCli) start(opts daemonOptions) (err error) {
 		"graphdriver": d.GraphDriverName(),
 	}).Info("Docker daemon")
 
+	cli.d = d
+
+	// initMiddlewares needs cli.d to be populated. Dont change this init order.
 	cli.initMiddlewares(api, serverConfig)
 	initRouter(api, d, c)
 
-	cli.d = d
 	cli.setupConfigReloadTrap()
 
 	// The serve API routine never exits unless an error occurs
@@ -294,7 +296,7 @@ func (cli *DaemonCli) start(opts daemonOptions) (err error) {
 	// Wait for serve API to complete
 	errAPI := <-serveAPIWait
 	c.Cleanup()
-	shutdownDaemon(d, 15)
+	shutdownDaemon(d)
 	containerdRemote.Cleanup()
 	if errAPI != nil {
 		return fmt.Errorf("Shutting down due to ServeAPI error: %v", errAPI)
@@ -340,16 +342,22 @@ func (cli *DaemonCli) stop() {
 // shutdownDaemon just wraps daemon.Shutdown() to handle a timeout in case
 // d.Shutdown() is waiting too long to kill container or worst it's
 // blocked there
-func shutdownDaemon(d *daemon.Daemon, timeout time.Duration) {
+func shutdownDaemon(d *daemon.Daemon) {
+	shutdownTimeout := d.ShutdownTimeout()
 	ch := make(chan struct{})
 	go func() {
 		d.Shutdown()
 		close(ch)
 	}()
+	if shutdownTimeout < 0 {
+		<-ch
+		logrus.Debug("Clean shutdown succeeded")
+		return
+	}
 	select {
 	case <-ch:
 		logrus.Debug("Clean shutdown succeeded")
-	case <-time.After(timeout * time.Second):
+	case <-time.After(time.Duration(shutdownTimeout) * time.Second):
 		logrus.Error("Force shutdown daemon")
 	}
 }
@@ -395,7 +403,7 @@ func loadDaemonCliConfig(opts daemonOptions) (*daemon.Config, error) {
 	}
 
 	// ensure that the log level is the one set after merging configurations
-	cliflags.SetDaemonLogLevel(config.LogLevel)
+	cliflags.SetLogLevel(config.LogLevel)
 
 	return config, nil
 }
@@ -438,6 +446,6 @@ func (cli *DaemonCli) initMiddlewares(s *apiserver.Server, cfg *apiserver.Config
 	u := middleware.NewUserAgentMiddleware(v)
 	s.UseMiddleware(u)
 
-	cli.authzMiddleware = authorization.NewMiddleware(cli.Config.AuthorizationPlugins)
+	cli.authzMiddleware = authorization.NewMiddleware(cli.Config.AuthorizationPlugins, cli.d.PluginStore)
 	s.UseMiddleware(cli.authzMiddleware)
 }

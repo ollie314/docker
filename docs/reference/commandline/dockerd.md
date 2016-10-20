@@ -1,14 +1,9 @@
-<!--[metadata]>
-+++
-title = "dockerd"
-aliases = ["/engine/reference/commandline/daemon/"]
-description = "The daemon command description and usage"
-keywords = ["container, daemon, runtime"]
-[menu.main]
-parent = "smn_cli"
-weight = -1
-+++
-<![end-metadata]-->
+---
+title: "dockerd"
+aliases: ["/engine/reference/commandline/daemon/"]
+description: "The daemon command description and usage"
+keywords: ["container, daemon, runtime"]
+---
 
 # daemon
 
@@ -69,6 +64,7 @@ Options:
       --raw-logs                              Full timestamps without ANSI coloring
       --registry-mirror value                 Preferred Docker registry mirror (default [])
       --selinux-enabled                       Enable selinux support
+      --shutdown-timeout=15                   Set the shutdown timeout value in seconds
   -s, --storage-driver string                 Storage driver to use
       --storage-opt value                     Storage driver options (default [])
       --swarm-default-advertise-addr string   Set default address or interface for swarm advertised address
@@ -954,11 +950,6 @@ these resources are name-based, not id-based.  If the numeric ID information
 provided does not exist as entries in `/etc/passwd` or `/etc/group`, daemon
 startup will fail with an error message.
 
-> **Note:** On Fedora 22, you have to `touch` the `/etc/subuid` and `/etc/subgid`
-> files to have ranges assigned when users are created.  This must be done
-> *before* the `--userns-remap` option is enabled. Once these files exist, the
-> daemon can be (re)started and range assignment on user creation works properly.
-
 **Example: starting with default Docker user management:**
 
 ```bash
@@ -1128,6 +1119,7 @@ This is a full example of the allowed configuration options on Linux:
 	"cluster-advertise": "",
 	"max-concurrent-downloads": 3,
 	"max-concurrent-uploads": 5,
+	"shutdown-timeout": 15,
 	"debug": true,
 	"hosts": [],
 	"log-level": "",
@@ -1204,6 +1196,7 @@ This is a full example of the allowed configuration options on Windows:
     "graph": "",
     "cluster-store": "",
     "cluster-advertise": "",
+    "shutdown-timeout": 15,
     "debug": true,
     "hosts": [],
     "log-level": "",

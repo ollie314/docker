@@ -27,9 +27,7 @@ func (n *networkRouter) getNetworksList(ctx context.Context, w http.ResponseWrit
 	list := []types.NetworkResource{}
 
 	if nr, err := n.clusterProvider.GetNetworks(); err == nil {
-		for _, nw := range nr {
-			list = append(list, nw)
-		}
+		list = append(list, nr...)
 	}
 
 	// Combine the network list returned by Docker daemon if it is not already
@@ -161,6 +159,7 @@ func (n *networkRouter) buildNetworkResource(nw libnetwork.Network) *types.Netwo
 	info := nw.Info()
 	r.Name = nw.Name()
 	r.ID = nw.ID()
+	r.Created = info.Created()
 	r.Scope = info.Scope()
 	if n.clusterProvider.IsManager() {
 		if _, err := n.clusterProvider.GetNetwork(nw.Name()); err == nil {
