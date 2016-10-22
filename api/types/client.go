@@ -41,6 +41,7 @@ type ContainerExecInspect struct {
 	ContainerID string
 	Running     bool
 	ExitCode    int
+	Pid         int
 }
 
 // ContainerListOptions holds parameters to list containers with.
@@ -312,4 +313,13 @@ type TaskListOptions struct {
 // PluginRemoveOptions holds parameters to remove plugins.
 type PluginRemoveOptions struct {
 	Force bool
+}
+
+// PluginInstallOptions holds parameters to install a plugin.
+type PluginInstallOptions struct {
+	Disabled              bool
+	AcceptAllPermissions  bool
+	RegistryAuth          string // RegistryAuth is the base64 encoded credentials for the registry
+	PrivilegeFunc         RequestPrivilegeFunc
+	AcceptPermissionsFunc func(PluginPrivileges) (bool, error)
 }

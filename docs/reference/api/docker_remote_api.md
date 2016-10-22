@@ -4,6 +4,15 @@ description: "API Documentation for Docker"
 keywords: ["API, Docker, rcli, REST,  documentation"]
 ---
 
+<!-- This file is maintained within the docker/docker Github
+     repository at https://github.com/docker/docker/. Make all
+     pull requests against that repo. If you see this file in
+     another repository, consider it read-only there, as it will
+     periodically be overwritten by the definitive file. Pull
+     requests which include edits to this file in other repositories
+     will be rejected.
+-->
+
 # Docker Remote API
 
 Docker's Remote API uses an open schema model.  In this model, unknown
@@ -24,7 +33,17 @@ later, as these versions have the `--unix-socket` flag available. To
 run `curl` against the daemon on the default socket, use the
 following:
 
-    curl --unix-socket /var/run/docker.sock http:/containers/json
+When using cUrl 7.50 or later:
+
+```console
+$ curl --unix-socket /var/run/docker.sock http://localhost/containers/json
+```
+
+When using cURL 7.40, `localhost` must be omitted:
+
+```console
+$ curl --unix-socket /var/run/docker.sock http://containers/json
+```
 
 If you have bound the Docker daemon to a different socket path or TCP
 port, you would reference that in your cURL rather than the
@@ -130,7 +149,15 @@ This section lists each version from latest to oldest.  Each listing includes a 
   containers that are tasks (part of a service in swarm mode).
 * `POST /containers/create` now takes `StopTimeout` field.
 * `POST /services/create` and `POST /services/(id or name)/update` now accept `Monitor` and `MaxFailureRatio` parameters, which control the response to failures during service updates.
-* `GET /networks/(name)` now returns `Created`.
+* `POST /services/(id or name)/update` now accepts a `ForceUpdate` parameter inside the `TaskTemplate`, which causes the service to be updated even if there are no changes which would ordinarily trigger an update.
+* `GET /networks/(name)` now returns field `Created` in response to show network created time.
+* `POST /containers/(id or name)/exec` now accepts an `Env` field, which holds a list of environment variables to be set in the context of the command execution.
+* `GET /volumes`, `GET /volumes/(name)`, and `POST /volumes/create` now return the `Options` field which holds the driver specific options to use for when creating the volume.
+* `GET /exec/(id)/json` now returns `Pid`, which is the system pid for the exec'd process.
+* `POST /containers/prune` prunes stopped containers.
+* `POST /images/prune` prunes unused images.
+* `POST /volumes/prune` prunes unused volumes.
+
 
 ### v1.24 API changes
 

@@ -4,6 +4,15 @@ description: "The network inspect command description and usage"
 keywords: ["network, inspect, user-defined"]
 ---
 
+<!-- This file is maintained within the docker/docker Github
+     repository at https://github.com/docker/docker/. Make all
+     pull requests against that repo. If you see this file in
+     another repository, consider it read-only there, as it will
+     periodically be overwritten by the definitive file. Pull
+     requests which include edits to this file in other repositories
+     will be rejected.
+-->
+
 # network inspect
 
 ```markdown
@@ -119,4 +128,4 @@ $ docker network inspect simple-network
 * [network create](network_create.md)
 * [network ls](network_ls.md)
 * [network rm](network_rm.md)
-* [Understand Docker container networks](../../userguide/networking/index.md)
+* [Understand Docker container networks](https://docs.docker.com/engine/userguide/networking/)

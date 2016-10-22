@@ -19,7 +19,13 @@ import (
  * When the time comes to remove support for V1 plugins, flipping
  * this bool is all that will be needed.
  */
-var allowV1PluginsFallback = true
+const allowV1PluginsFallback bool = true
+
+/* defaultAPIVersion is the version of the plugin API for volume, network,
+   IPAM and authz. This is a very stable API. When we update this API, then
+   pluginType should include a version. eg "networkdriver/2.0".
+*/
+const defaultAPIVersion string = "1.0"
 
 // ErrNotFound indicates that a plugin was not found locally.
 type ErrNotFound string
@@ -208,11 +214,16 @@ func (ps *Store) GetAllByCap(capability string) ([]plugingetter.CompatPlugin, er
 // and ipam drivers during plugin registration. The callback registers the
 // driver with the subsystem (network, ipam).
 func (ps *Store) Handle(capability string, callback func(string, *plugins.Client)) {
-	pluginType := fmt.Sprintf("docker.%s/1", strings.ToLower(capability))
+	pluginType := fmt.Sprintf("docker.%s/%s", strings.ToLower(capability), defaultAPIVersion)
 
 	// Register callback with new plugin model.
 	ps.Lock()
-	ps.handlers[pluginType] = callback
+	handlers, ok := ps.handlers[pluginType]
+	if !ok {
+		handlers = []func(string, *plugins.Client){}
+	}
+	handlers = append(handlers, callback)
+	ps.handlers[pluginType] = handlers
 	ps.Unlock()
 
 	// Register callback with legacy plugin model.
@@ -224,7 +235,7 @@ func (ps *Store) Handle(capability string, callback func(string, *plugins.Client
 // CallHandler calls the registered callback. It is invoked during plugin enable.
 func (ps *Store) CallHandler(p *v2.Plugin) {
 	for _, typ := range p.GetTypes() {
-		if handler := ps.handlers[typ.String()]; handler != nil {
+		for _, handler := range ps.handlers[typ.String()] {
 			handler(p.Name(), p.Client())
 		}
 	}

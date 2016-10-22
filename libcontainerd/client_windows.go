@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -263,13 +264,14 @@ func (clnt *client) Create(containerID string, checkpoint string, checkpointDir 
 }
 
 // AddProcess is the handler for adding a process to an already running
-// container. It's called through docker exec.
-func (clnt *client) AddProcess(ctx context.Context, containerID, processFriendlyName string, procToAdd Process) error {
+// container. It's called through docker exec. It returns the system pid of the
+// exec'd process.
+func (clnt *client) AddProcess(ctx context.Context, containerID, processFriendlyName string, procToAdd Process) (int, error) {
 	clnt.lock(containerID)
 	defer clnt.unlock(containerID)
 	container, err := clnt.getContainer(containerID)
 	if err != nil {
-		return err
+		return -1, err
 	}
 	// Note we always tell HCS to
 	// create stdout as it's required regardless of '-i' or '-t' options, so that
@@ -305,7 +307,7 @@ func (clnt *client) AddProcess(ctx context.Context, containerID, processFriendly
 	newProcess, err := container.hcsContainer.CreateProcess(&createProcessParms)
 	if err != nil {
 		logrus.Errorf("libcontainerd: AddProcess(%s) CreateProcess() failed %s", containerID, err)
-		return err
+		return -1, err
 	}
 
 	pid := newProcess.Pid()
@@ -313,7 +315,7 @@ func (clnt *client) AddProcess(ctx context.Context, containerID, processFriendly
 	stdin, stdout, stderr, err = newProcess.Stdio()
 	if err != nil {
 		logrus.Errorf("libcontainerd: %s getting std pipes failed %s", containerID, err)
-		return err
+		return -1, err
 	}
 
 	iopipe := &IOPipe{Terminal: procToAdd.Terminal}
@@ -321,10 +323,10 @@ func (clnt *client) AddProcess(ctx context.Context, containerID, processFriendly
 
 	// Convert io.ReadClosers to io.Readers
 	if stdout != nil {
-		iopipe.Stdout = openReaderFromPipe(stdout)
+		iopipe.Stdout = ioutil.NopCloser(&autoClosingReader{ReadCloser: stdout})
 	}
 	if stderr != nil {
-		iopipe.Stderr = openReaderFromPipe(stderr)
+		iopipe.Stderr = ioutil.NopCloser(&autoClosingReader{ReadCloser: stderr})
 	}
 
 	proc := &process{
@@ -347,7 +349,7 @@ func (clnt *client) AddProcess(ctx context.Context, containerID, processFriendly
 	// Tell the engine to attach streams back to the client
 	if err := clnt.backend.AttachStreams(processFriendlyName, *iopipe); err != nil {
 		clnt.lock(containerID)
-		return err
+		return -1, err
 	}
 
 	// Lock again so that the defer unlock doesn't fail. (I really don't like this code)
@@ -356,7 +358,7 @@ func (clnt *client) AddProcess(ctx context.Context, containerID, processFriendly
 	// Spin up a go routine waiting for exit to handle cleanup
 	go container.waitExit(proc, false)
 
-	return nil
+	return pid, nil
 }
 
 // Signal handles `docker stop` on Windows. While Linux has support for

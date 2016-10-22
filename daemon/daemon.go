@@ -52,7 +52,6 @@ import (
 	"github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
 	"github.com/docker/docker/runconfig"
-	"github.com/docker/docker/utils"
 	volumedrivers "github.com/docker/docker/volume/drivers"
 	"github.com/docker/docker/volume/local"
 	"github.com/docker/docker/volume/store"
@@ -107,27 +106,20 @@ type Daemon struct {
 
 func (daemon *Daemon) restore() error {
 	var (
-		debug         = utils.IsDebugEnabled()
 		currentDriver = daemon.GraphDriverName()
 		containers    = make(map[string]*container.Container)
 	)
 
-	if !debug {
-		logrus.Info("Loading containers: start.")
-	}
+	logrus.Info("Loading containers: start.")
+
 	dir, err := ioutil.ReadDir(daemon.repository)
 	if err != nil {
 		return err
 	}
 
-	containerCount := 0
 	for _, v := range dir {
 		id := v.Name()
 		container, err := daemon.load(id)
-		if !debug && logrus.GetLevel() == logrus.InfoLevel {
-			fmt.Print(".")
-			containerCount++
-		}
 		if err != nil {
 			logrus.Errorf("Failed to load container %v: %v", id, err)
 			continue
@@ -352,12 +344,7 @@ func (daemon *Daemon) restore() error {
 
 	group.Wait()
 
-	if !debug {
-		if logrus.GetLevel() == logrus.InfoLevel && containerCount > 0 {
-			fmt.Println()
-		}
-		logrus.Info("Loading containers: done.")
-	}
+	logrus.Info("Loading containers: done.")
 
 	return nil
 }
@@ -992,6 +979,7 @@ func (daemon *Daemon) initDiscovery(config *Config) error {
 // These are the settings that Reload changes:
 // - Daemon labels.
 // - Daemon debug log level.
+// - Daemon insecure registries.
 // - Daemon max concurrent downloads
 // - Daemon max concurrent uploads
 // - Cluster discovery (reconfigure and restart).
@@ -1022,6 +1010,12 @@ func (daemon *Daemon) Reload(config *Config) (err error) {
 	}
 	if config.IsValueSet("debug") {
 		daemon.configStore.Debug = config.Debug
+	}
+	if config.IsValueSet("insecure-registries") {
+		daemon.configStore.InsecureRegistries = config.InsecureRegistries
+		if err := daemon.RegistryService.LoadInsecureRegistries(config.InsecureRegistries); err != nil {
+			return err
+		}
 	}
 	if config.IsValueSet("live-restore") {
 		daemon.configStore.LiveRestoreEnabled = config.LiveRestoreEnabled
@@ -1065,20 +1059,39 @@ func (daemon *Daemon) Reload(config *Config) (err error) {
 	// We emit daemon reload event here with updatable configurations
 	attributes["debug"] = fmt.Sprintf("%t", daemon.configStore.Debug)
 	attributes["live-restore"] = fmt.Sprintf("%t", daemon.configStore.LiveRestoreEnabled)
+
+	if daemon.configStore.InsecureRegistries != nil {
+		insecureRegistries, err := json.Marshal(daemon.configStore.InsecureRegistries)
+		if err != nil {
+			return err
+		}
+		attributes["insecure-registries"] = string(insecureRegistries)
+	} else {
+		attributes["insecure-registries"] = "[]"
+	}
+
 	attributes["cluster-store"] = daemon.configStore.ClusterStore
 	if daemon.configStore.ClusterOpts != nil {
-		opts, _ := json.Marshal(daemon.configStore.ClusterOpts)
+		opts, err := json.Marshal(daemon.configStore.ClusterOpts)
+		if err != nil {
+			return err
+		}
 		attributes["cluster-store-opts"] = string(opts)
 	} else {
 		attributes["cluster-store-opts"] = "{}"
 	}
 	attributes["cluster-advertise"] = daemon.configStore.ClusterAdvertise
+
 	if daemon.configStore.Labels != nil {
-		labels, _ := json.Marshal(daemon.configStore.Labels)
+		labels, err := json.Marshal(daemon.configStore.Labels)
+		if err != nil {
+			return err
+		}
 		attributes["labels"] = string(labels)
 	} else {
 		attributes["labels"] = "[]"
 	}
+
 	attributes["max-concurrent-downloads"] = fmt.Sprintf("%d", *daemon.configStore.MaxConcurrentDownloads)
 	attributes["max-concurrent-uploads"] = fmt.Sprintf("%d", *daemon.configStore.MaxConcurrentUploads)
 	attributes["shutdown-timeout"] = fmt.Sprintf("%d", daemon.configStore.ShutdownTimeout)

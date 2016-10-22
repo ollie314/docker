@@ -13,6 +13,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	containerd "github.com/docker/containerd/api/grpc/types"
 	"github.com/docker/docker/pkg/idtools"
+	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/timestamp"
@@ -30,22 +31,25 @@ type client struct {
 	liveRestore   bool
 }
 
-func (clnt *client) AddProcess(ctx context.Context, containerID, processFriendlyName string, specp Process) error {
+// AddProcess is the handler for adding a process to an already running
+// container. It's called through docker exec. It returns the system pid of the
+// exec'd process.
+func (clnt *client) AddProcess(ctx context.Context, containerID, processFriendlyName string, specp Process) (int, error) {
 	clnt.lock(containerID)
 	defer clnt.unlock(containerID)
 	container, err := clnt.getContainer(containerID)
 	if err != nil {
-		return err
+		return -1, err
 	}
 
 	spec, err := container.spec()
 	if err != nil {
-		return err
+		return -1, err
 	}
 	sp := spec.Process
 	sp.Args = specp.Args
 	sp.Terminal = specp.Terminal
-	if specp.Env != nil {
+	if len(specp.Env) > 0 {
 		sp.Env = specp.Env
 	}
 	if specp.Cwd != nil {
@@ -88,13 +92,27 @@ func (clnt *client) AddProcess(ctx context.Context, containerID, processFriendly
 
 	iopipe, err := p.openFifos(sp.Terminal)
 	if err != nil {
-		return err
+		return -1, err
 	}
 
-	if _, err := clnt.remote.apiClient.AddProcess(ctx, r); err != nil {
+	resp, err := clnt.remote.apiClient.AddProcess(ctx, r)
+	if err != nil {
 		p.closeFifos(iopipe)
-		return err
+		return -1, err
 	}
+
+	var stdinOnce sync.Once
+	stdin := iopipe.Stdin
+	iopipe.Stdin = ioutils.NewWriteCloserWrapper(stdin, func() error {
+		var err error
+		stdinOnce.Do(func() { // on error from attach we don't know if stdin was already closed
+			err = stdin.Close()
+			if err2 := p.sendCloseStdin(); err == nil {
+				err = err2
+			}
+		})
+		return err
+	})
 
 	container.processes[processFriendlyName] = p
 
@@ -102,11 +120,12 @@ func (clnt *client) AddProcess(ctx context.Context, containerID, processFriendly
 
 	if err := clnt.backend.AttachStreams(processFriendlyName, *iopipe); err != nil {
 		clnt.lock(containerID)
-		return err
+		p.closeFifos(iopipe)
+		return -1, err
 	}
 	clnt.lock(containerID)
 
-	return nil
+	return int(resp.SystemPid), nil
 }
 
 func (clnt *client) prepareBundleDir(uid, gid int) (string, error) {
@@ -416,8 +435,18 @@ func (clnt *client) restore(cont *containerd.Container, lastEvent *containerd.Ev
 	if err != nil {
 		return err
 	}
+	var stdinOnce sync.Once
+	stdin := iopipe.Stdin
+	iopipe.Stdin = ioutils.NewWriteCloserWrapper(stdin, func() error {
+		var err error
+		stdinOnce.Do(func() { // on error from attach we don't know if stdin was already closed
+			err = stdin.Close()
+		})
+		return err
+	})
 
 	if err := clnt.backend.AttachStreams(containerID, *iopipe); err != nil {
+		container.closeFifos(iopipe)
 		return err
 	}
 
@@ -430,6 +459,7 @@ func (clnt *client) restore(cont *containerd.Container, lastEvent *containerd.Ev
 		}})
 
 	if err != nil {
+		container.closeFifos(iopipe)
 		return err
 	}
 

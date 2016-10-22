@@ -4,6 +4,15 @@ description: "API Documentation for Docker"
 keywords: ["API, Docker, rcli, REST,  documentation"]
 ---
 
+<!-- This file is maintained within the docker/docker Github
+     repository at https://github.com/docker/docker/. Make all
+     pull requests against that repo. If you see this file in
+     another repository, consider it read-only there, as it will
+     periodically be overwritten by the definitive file. Pull
+     requests which include edits to this file in other repositories
+     will be rejected.
+-->
+
 # Docker Remote API v1.25
 
 # 1. Brief introduction
@@ -825,7 +834,9 @@ Get `stdout` and `stderr` logs from the container ``id``
      Connection: Upgrade
      Upgrade: tcp
 
+     {% raw %}
      {{ STREAM }}
+     {% endraw %}
 
 **Query parameters**:
 
@@ -903,7 +914,9 @@ Export the contents of container `id`
     HTTP/1.1 200 OK
     Content-Type: application/octet-stream
 
+    {% raw %}
     {{ TAR STREAM }}
+    {% endraw %}
 
 **Status codes**:
 
@@ -1289,7 +1302,9 @@ Attach to the container `id`
     Connection: Upgrade
     Upgrade: tcp
 
+    {% raw %}
     {{ STREAM }}
+    {% endraw %}
 
 **Query parameters**:
 
@@ -1373,7 +1388,9 @@ Implements websocket protocol handshake according to [RFC 6455](http://tools.iet
 
 **Example response**
 
+    {% raw %}
     {{ STREAM }}
+    {% endraw %}
 
 **Query parameters**:
 
@@ -1487,7 +1504,9 @@ Get a tar archive of a resource in the filesystem of container `id`.
     Content-Type: application/x-tar
     X-Docker-Container-Path-Stat: eyJuYW1lIjoicm9vdCIsInNpemUiOjQwOTYsIm1vZGUiOjIxNDc0ODQwOTYsIm10aW1lIjoiMjAxNC0wMi0yN1QyMDo1MToyM1oiLCJsaW5rVGFyZ2V0IjoiIn0=
 
+    {% raw %}
     {{ TAR STREAM }}
+    {% endraw %}
 
 On success, a response header `X-Docker-Container-Path-Stat` will be set to a
 base64-encoded JSON object containing some filesystem header information about
@@ -1542,7 +1561,9 @@ Upload a tar archive to be extracted to a path in the filesystem of container
     PUT /containers/8cce319429b2/archive?path=/vol1 HTTP/1.1
     Content-Type: application/x-tar
 
+    {% raw %}
     {{ TAR STREAM }}
+    {% endraw %}
 
 **Example response**:
 
@@ -1702,7 +1723,9 @@ Build an image from a Dockerfile
 
     POST /build HTTP/1.1
 
+    {% raw %}
     {{ TAR STREAM }}
+    {% endraw %}
 
 **Example response**:
 
@@ -2661,6 +2684,7 @@ Return docker data usage information
                     "Mountpoint": "",
                     "Labels": null,
                     "Scope": "",
+                    "Options": null
                     "UsageData": {
                         "Size": 0,
                         "RefCount": 0
@@ -3151,6 +3175,10 @@ Sets up an exec instance in a running container `id`
       "AttachStderr": true,
       "Cmd": ["sh"],
       "DetachKeys": "ctrl-p,ctrl-q",
+      "Env": [
+        "FOO=bar",
+        "BAZ=quux"
+      ],
       "Privileged": true,
       "Tty": true,
       "User": "123:456"
@@ -3175,6 +3203,7 @@ Sets up an exec instance in a running container `id`
         container. Format is a single character `[a-Z]` or `ctrl-<value>`
         where `<value>` is one of: `a-z`, `@`, `^`, `[`, `,` or `_`.
 -   **Tty** - Boolean value to allocate a pseudo-TTY.
+-   **Env** - A list of environment variables in the form of `["VAR=value", ...]`
 -   **Cmd** - Command to run specified as a string or an array of strings.
 -   **Privileged** - Boolean value, runs the exec process with extended privileges.
 -   **User** - A string value specifying the user, and optionally, group to run
@@ -3211,7 +3240,9 @@ interactive session with the `exec` command.
     HTTP/1.1 200 OK
     Content-Type: application/vnd.docker.raw-stream
 
+    {% raw %}
     {{ STREAM }}
+    {% endraw %}
 
 **JSON parameters**:
 
@@ -3289,7 +3320,8 @@ Return low-level information about the `exec` command `id`.
         "tty": true,
         "user": "1000"
       },
-      "Running": false
+      "Running": false,
+      "Pid": "42000"
     }
 
 **Status codes**:
@@ -3323,7 +3355,12 @@ Return low-level information about the `exec` command `id`.
             "com.example.some-label": "some-value",
             "com.example.some-other-label": "some-other-value"
           },
-          "Scope": "local"
+          "Scope": "local",
+          "Options": {
+            "device": "tmpfs",
+            "o": "size=100m,uid=1000",
+            "type": "tmpfs"
+          }
         }
       ],
       "Warnings": []
@@ -3377,7 +3414,8 @@ Create a volume
         "com.example.some-label": "some-value",
         "com.example.some-other-label": "some-other-value"
       },
-      "Scope": "local"
+      "Scope": "local",
+      "Options": null
     }
 
 **Status codes**:
@@ -3424,7 +3462,11 @@ Return low-level information on the volume `name`
           "com.example.some-label": "some-value",
           "com.example.some-other-label": "some-other-value"
       },
-      "Scope": "local"
+      "Scope": "local",
+      "Options": {
+          "some-key": "some-value",
+          "some-other-key": "some-other-value"
+      },
     }
 
 **Status codes**:
@@ -3449,6 +3491,7 @@ response.
 - **Labels** - Labels set on the volume, specified as a map: `{"key":"value","key2":"value2"}`.
 - **Scope** - Scope describes the level at which the volume exists, can be one of
     `global` for cluster-wide or `local` for machine level. The default is `local`.
+- **Options** - Options holds the driver specific options to use for when creating the volume.
 
 ### Remove a volume
 
@@ -4872,7 +4915,8 @@ List services
               "Condition": "any",
               "MaxAttempts": 0
             },
-            "Placement": {}
+            "Placement": {},
+            "ForceUpdate": 0
           },
           "Mode": {
             "Replicated": {
@@ -4995,7 +5039,8 @@ image](#create-an-image) section for more details.
           "Condition": "on-failure",
           "Delay": 10000000000.0,
           "MaxAttempts": 10
-        }
+        },
+        "ForceUpdate": 0
       },
       "Mode": {
         "Replicated": {
@@ -5089,6 +5134,7 @@ image](#create-an-image) section for more details.
         - **Window** – Windows is the time window used to evaluate the restart policy (default value is
           0, which is unbounded).
     - **Placement** – An array of constraints.
+    - **ForceUpdate**: A counter that triggers an update even if no relevant parameters have been changed.
 - **Mode** – Scheduling mode for the service (`replicated` or `global`, defaults to `replicated`).
 - **UpdateConfig** – Specification for the update strategy of the service.
     - **Parallelism** – Maximum number of tasks to be updated in one iteration (0 means unlimited
@@ -5260,7 +5306,8 @@ image](#create-an-image) section for more details.
           "Condition": "any",
           "MaxAttempts": 0
         },
-        "Placement": {}
+        "Placement": {},
+        "ForceUpdate": 0
       },
       "Mode": {
         "Replicated": {
@@ -5331,6 +5378,7 @@ image](#create-an-image) section for more details.
         - **Window** – Windows is the time window used to evaluate the restart policy (default value is
           0, which is unbounded).
     - **Placement** – An array of constraints.
+    - **ForceUpdate**: A counter that triggers an update even if no relevant parameters have been changed.
 - **Mode** – Scheduling mode for the service (`replicated` or `global`, defaults to `replicated`).
 - **UpdateConfig** – Specification for the update strategy of the service.
     - **Parallelism** – Maximum number of tasks to be updated in one iteration (0 means unlimited

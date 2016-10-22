@@ -519,7 +519,7 @@ func (daemon *Daemon) transformContainer(container *container.Container, ctx *li
 		}
 		if len(bindings) == 0 {
 			newC.Ports = append(newC.Ports, types.Port{
-				PrivatePort: p,
+				PrivatePort: uint16(p),
 				Type:        port.Proto(),
 			})
 			continue
@@ -530,8 +530,8 @@ func (daemon *Daemon) transformContainer(container *container.Container, ctx *li
 				return nil, err
 			}
 			newC.Ports = append(newC.Ports, types.Port{
-				PrivatePort: p,
-				PublicPort:  h,
+				PrivatePort: uint16(p),
+				PublicPort:  uint16(h),
 				Type:        port.Proto(),
 				IP:          binding.HostIP,
 			})
@@ -608,7 +608,7 @@ func (daemon *Daemon) filterVolumes(vols []volume.Volume, filter filters.Args) (
 			}
 		}
 		if filter.Include("label") {
-			v, ok := vol.(volume.LabeledVolume)
+			v, ok := vol.(volume.DetailedVolume)
 			if !ok {
 				continue
 			}
