@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/errors"
@@ -31,6 +32,7 @@ func (daemon *Daemon) ContainerCreate(params types.ContainerCreateConfig, valida
 }
 
 func (daemon *Daemon) containerCreate(params types.ContainerCreateConfig, managed bool, validateHostname bool) (types.ContainerCreateResponse, error) {
+	start := time.Now()
 	if params.Config == nil {
 		return types.ContainerCreateResponse{}, fmt.Errorf("Config cannot be empty in order to create a container")
 	}
@@ -57,7 +59,7 @@ func (daemon *Daemon) containerCreate(params types.ContainerCreateConfig, manage
 	if err != nil {
 		return types.ContainerCreateResponse{Warnings: warnings}, daemon.imageNotExistToErrcode(err)
 	}
-
+	containerActions.WithValues("create").UpdateSince(start)
 	return types.ContainerCreateResponse{ID: container.ID, Warnings: warnings}, nil
 }
 
@@ -135,9 +137,7 @@ func (daemon *Daemon) create(params types.ContainerCreateConfig, managed bool) (
 	// backwards API compatibility.
 	container.HostConfig = runconfig.SetDefaultNetModeIfBlank(container.HostConfig)
 
-	if err := daemon.updateContainerNetworkSettings(container, endpointsConfigs); err != nil {
-		return nil, err
-	}
+	daemon.updateContainerNetworkSettings(container, endpointsConfigs)
 
 	if err := container.ToDisk(); err != nil {
 		logrus.Errorf("Error saving new container to disk: %v", err)

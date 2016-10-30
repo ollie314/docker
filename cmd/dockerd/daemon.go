@@ -129,7 +129,7 @@ func (cli *DaemonCli) start(opts daemonOptions) (err error) {
 		utils.EnableDebug()
 	}
 
-	if utils.ExperimentalBuild() {
+	if cli.Config.Experimental {
 		logrus.Warn("Running experimental build")
 	}
 
@@ -248,6 +248,15 @@ func (cli *DaemonCli) start(opts daemonOptions) (err error) {
 		return fmt.Errorf("Error starting daemon: %v", err)
 	}
 
+	if cli.Config.MetricsAddress != "" {
+		if !d.HasExperimental() {
+			return fmt.Errorf("metrics-addr is only supported when experimental is enabled")
+		}
+		if err := startMetricsServer(cli.Config.MetricsAddress); err != nil {
+			return err
+		}
+	}
+
 	name, _ := os.Hostname()
 
 	c, err := cluster.New(cluster.Config{
@@ -279,6 +288,7 @@ func (cli *DaemonCli) start(opts daemonOptions) (err error) {
 
 	// initMiddlewares needs cli.d to be populated. Dont change this init order.
 	cli.initMiddlewares(api, serverConfig)
+	d.SetCluster(c)
 	initRouter(api, d, c)
 
 	cli.setupConfigReloadTrap()
@@ -396,6 +406,23 @@ func loadDaemonCliConfig(opts daemonOptions) (*daemon.Config, error) {
 		return nil, err
 	}
 
+	// Labels of the docker engine used to allow multiple values associated with the same key.
+	// This is deprecated in 1.13, and, be removed after 3 release cycles.
+	// The following will check the conflict of labels, and report a warning for deprecation.
+	//
+	// TODO: After 3 release cycles (1.16) an error will be returned, and labels will be
+	// sanitized to consolidate duplicate key-value pairs (config.Labels = newLabels):
+	//
+	// newLabels, err := daemon.GetConflictFreeLabels(config.Labels)
+	// if err != nil {
+	//	return nil, err
+	// }
+	// config.Labels = newLabels
+	//
+	if _, err := daemon.GetConflictFreeLabels(config.Labels); err != nil {
+		logrus.Warnf("Engine labels with duplicate keys and conflicting values have been deprecated: %s", err)
+	}
+
 	// Regardless of whether the user sets it to true or false, if they
 	// specify TLSVerify at all then we need to turn on TLS
 	if config.IsValueSet(cliflags.FlagTLSVerify) {
@@ -434,6 +461,9 @@ func initRouter(s *apiserver.Server, d *daemon.Daemon, c *cluster.Cluster) {
 
 func (cli *DaemonCli) initMiddlewares(s *apiserver.Server, cfg *apiserver.Config) {
 	v := cfg.Version
+
+	exp := middleware.NewExperimentalMiddleware(cli.d.HasExperimental())
+	s.UseMiddleware(exp)
 
 	vm := middleware.NewVersionMiddleware(v, api.DefaultVersion, api.MinVersion)
 	s.UseMiddleware(vm)

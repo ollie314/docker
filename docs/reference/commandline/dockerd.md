@@ -45,6 +45,7 @@ Options:
       --dns-search value                      DNS search domains to use (default [])
       --exec-opt value                        Runtime execution options (default [])
       --exec-root string                      Root directory for execution state files (default "/var/run/docker")
+      --experimental                          Enable experimental features
       --fixed-cidr string                     IPv4 subnet for fixed IPs
       --fixed-cidr-v6 string                  IPv6 subnet for fixed IPs
   -g, --graph string                          Root of the Docker runtime (default "/var/lib/docker")
@@ -985,6 +986,11 @@ If you have a group that doesn't match the username, you may provide the `gid`
 or group name as well; otherwise the username will be used as the group name
 when querying the system for the subordinate group ID range.
 
+The output of `docker info` can be used to determine if the daemon is running
+with user namespaces enabled or not. If the daemon is configured with user
+namespaces, the Security Options entry in the response will list "userns" as
+one of the enabled security features.
+
 ### Detailed information on `subuid`/`subgid` ranges
 
 Given potential advanced use of the subordinate ID ranges by power users, the
@@ -1114,6 +1120,7 @@ This is a full example of the allowed configuration options on Linux:
 	"dns-search": [],
 	"exec-opts": [],
 	"exec-root": "",
+	"experimental": false,
 	"storage-driver": "",
 	"storage-opts": [],
 	"labels": [],
@@ -1195,6 +1202,7 @@ This is a full example of the allowed configuration options on Windows:
     "dns-opts": [],
     "dns-search": [],
     "exec-opts": [],
+    "experimental": false,
     "storage-driver": "",
     "storage-opts": [],
     "labels": [],
@@ -1205,6 +1213,8 @@ This is a full example of the allowed configuration options on Windows:
     "graph": "",
     "cluster-store": "",
     "cluster-advertise": "",
+    "max-concurrent-downloads": 3,
+    "max-concurrent-uploads": 5,
     "shutdown-timeout": 15,
     "debug": true,
     "hosts": [],

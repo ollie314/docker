@@ -292,6 +292,7 @@ func (daemon *Daemon) createNetwork(create types.NetworkCreateRequest, id string
 	}
 
 	daemon.LogNetworkEvent(n, "create")
+
 	return &types.NetworkCreateResponse{
 		ID:      n.ID(),
 		Warning: warning,
@@ -364,6 +365,9 @@ func (daemon *Daemon) GetNetworkDriverList() []string {
 
 	pluginList := daemon.netController.BuiltinDrivers()
 	pluginMap := make(map[string]bool)
+	for _, plugin := range pluginList {
+		pluginMap[plugin] = true
+	}
 
 	networks := daemon.netController.Networks()
 
