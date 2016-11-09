@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -169,7 +170,7 @@ func New(config Config) (*Cluster, error) {
 
 	select {
 	case <-time.After(swarmConnectTimeout):
-		logrus.Errorf("swarm component could not be started before timeout was reached")
+		logrus.Error("swarm component could not be started before timeout was reached")
 	case <-n.Ready():
 	case <-n.done:
 		return nil, fmt.Errorf("swarm component could not be started: %v", c.err)
@@ -277,13 +278,20 @@ func (c *Cluster) startNewNode(conf nodeStartConfig) (*node, error) {
 		}
 	}
 
+	var control string
+	if runtime.GOOS == "windows" {
+		control = `\\.\pipe\` + controlSocket
+	} else {
+		control = filepath.Join(c.runtimeRoot, controlSocket)
+	}
+
 	c.node = nil
 	c.cancelDelay = nil
 	c.stop = false
 	n, err := swarmnode.New(&swarmnode.Config{
 		Hostname:           c.config.Name,
 		ForceNewCluster:    conf.forceNewCluster,
-		ListenControlAPI:   filepath.Join(c.runtimeRoot, controlSocket),
+		ListenControlAPI:   control,
 		ListenRemoteAPI:    conf.ListenAddr,
 		AdvertiseRemoteAPI: conf.AdvertiseAddr,
 		JoinAddr:           conf.joinAddr,
@@ -490,8 +498,15 @@ func (c *Cluster) Join(req types.JoinRequest) error {
 
 	select {
 	case <-time.After(swarmConnectTimeout):
-		// attempt to connect will continue in background, also reconnecting
-		go c.reconnectOnFailure(n)
+		// attempt to connect will continue in background, but reconnect only if it didn't fail
+		go func() {
+			select {
+			case <-n.Ready():
+				c.reconnectOnFailure(n)
+			case <-n.done:
+				logrus.Errorf("failed to join the cluster: %+v", c.err)
+			}
+		}()
 		return ErrSwarmJoinTimeoutReached
 	case <-n.Ready():
 		go c.reconnectOnFailure(n)
@@ -597,7 +612,7 @@ func (c *Cluster) listContainerForNode(nodeID string) ([]string, error) {
 	filters := filters.NewArgs()
 	filters.Add("label", fmt.Sprintf("com.docker.swarm.node.id=%s", nodeID))
 	containers, err := c.config.Backend.Containers(&apitypes.ContainerListOptions{
-		Filter: filters,
+		Filters: filters,
 	})
 	if err != nil {
 		return []string{}, err
@@ -840,7 +855,7 @@ func (c *Cluster) GetServices(options apitypes.ServiceListOptions) ([]types.Serv
 		return nil, c.errNoManager()
 	}
 
-	filters, err := newListServicesFilters(options.Filter)
+	filters, err := newListServicesFilters(options.Filters)
 	if err != nil {
 		return nil, err
 	}
@@ -1019,7 +1034,7 @@ func (c *Cluster) GetNodes(options apitypes.NodeListOptions) ([]types.Node, erro
 		return nil, c.errNoManager()
 	}
 
-	filters, err := newListNodesFilters(options.Filter)
+	filters, err := newListNodesFilters(options.Filters)
 	if err != nil {
 		return nil, err
 	}
@@ -1149,7 +1164,7 @@ func (c *Cluster) GetTasks(options apitypes.TaskListOptions) ([]types.Task, erro
 		return nil
 	}
 
-	filters, err := newListTasksFilters(options.Filter, byName)
+	filters, err := newListTasksFilters(options.Filters, byName)
 	if err != nil {
 		return nil, err
 	}

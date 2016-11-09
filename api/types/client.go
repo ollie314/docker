@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"io"
 	"net"
+	"os"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -59,14 +60,14 @@ type ContainerExecInspect struct {
 
 // ContainerListOptions holds parameters to list containers with.
 type ContainerListOptions struct {
-	Quiet  bool
-	Size   bool
-	All    bool
-	Latest bool
-	Since  string
-	Before string
-	Limit  int
-	Filter filters.Args
+	Quiet   bool
+	Size    bool
+	All     bool
+	Latest  bool
+	Since   string
+	Before  string
+	Limit   int
+	Filters filters.Args
 }
 
 // ContainerLogsOptions holds parameters to filter logs with.
@@ -267,7 +268,7 @@ func (v VersionResponse) ServerOK() bool {
 
 // NodeListOptions holds parameters to list nodes with.
 type NodeListOptions struct {
-	Filter filters.Args
+	Filters filters.Args
 }
 
 // NodeRemoveOptions holds parameters to remove nodes with.
@@ -317,12 +318,12 @@ type ServiceUpdateOptions struct {
 
 // ServiceListOptions holds parameters to list  services with.
 type ServiceListOptions struct {
-	Filter filters.Args
+	Filters filters.Args
 }
 
 // TaskListOptions holds parameters to list  tasks with.
 type TaskListOptions struct {
-	Filter filters.Args
+	Filters filters.Args
 }
 
 // PluginRemoveOptions holds parameters to remove plugins.
@@ -337,4 +338,14 @@ type PluginInstallOptions struct {
 	RegistryAuth          string // RegistryAuth is the base64 encoded credentials for the registry
 	PrivilegeFunc         RequestPrivilegeFunc
 	AcceptPermissionsFunc func(PluginPrivileges) (bool, error)
+	Args                  []string
+}
+
+// SecretRequestOption is a type for requesting secrets
+type SecretRequestOption struct {
+	Source string
+	Target string
+	UID    string
+	GID    string
+	Mode   os.FileMode
 }

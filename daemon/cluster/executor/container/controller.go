@@ -33,8 +33,8 @@ type controller struct {
 var _ exec.Controller = &controller{}
 
 // NewController returns a docker exec runner for the provided task.
-func newController(b executorpkg.Backend, task *api.Task) (*controller, error) {
-	adapter, err := newContainerAdapter(b, task)
+func newController(b executorpkg.Backend, task *api.Task, secrets exec.SecretGetter) (*controller, error) {
+	adapter, err := newContainerAdapter(b, task, secrets)
 	if err != nil {
 		return nil, err
 	}
@@ -183,6 +183,10 @@ func (r *controller) Start(ctx context.Context) error {
 
 	// no health check
 	if ctnr.Config == nil || ctnr.Config.Healthcheck == nil {
+		if err := r.adapter.activateServiceBinding(); err != nil {
+			log.G(ctx).WithError(err).Errorf("failed to activate service binding for container %s which has no healthcheck config", r.adapter.container.name())
+			return err
+		}
 		return nil
 	}
 
@@ -225,6 +229,10 @@ func (r *controller) Start(ctx context.Context) error {
 				// set health check error, and wait for container to fully exit ("die" event)
 				healthErr = ErrContainerUnhealthy
 			case "health_status: healthy":
+				if err := r.adapter.activateServiceBinding(); err != nil {
+					log.G(ctx).WithError(err).Errorf("failed to activate service binding for container %s after healthy event", r.adapter.container.name())
+					return err
+				}
 				return nil
 			}
 		case <-ctx.Done():
@@ -288,6 +296,12 @@ func (r *controller) Shutdown(ctx context.Context) error {
 
 	if r.cancelPull != nil {
 		r.cancelPull()
+	}
+
+	// remove container from service binding
+	if err := r.adapter.deactivateServiceBinding(); err != nil {
+		log.G(ctx).WithError(err).Errorf("failed to deactivate service binding for container %s", r.adapter.container.name())
+		return err
 	}
 
 	if err := r.adapter.shutdown(ctx); err != nil {

@@ -1,7 +1,7 @@
 ---
 title: "plugin rm"
 description: "the plugin rm command description and usage"
-keywords: ["plugin, rm"]
+keywords: "plugin, rm"
 advisory: "experimental"
 ---
 
@@ -51,3 +51,4 @@ tiborvass/no-remove
 * [plugin disable](plugin_disable.md)
 * [plugin inspect](plugin_inspect.md)
 * [plugin install](plugin_install.md)
+* [plugin set](plugin_set.md)

@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
+	volumetypes "github.com/docker/docker/api/types/volume"
 	clustertypes "github.com/docker/docker/daemon/cluster/provider"
 	"github.com/docker/docker/reference"
 	"github.com/docker/swarmkit/agent/exec"
@@ -126,7 +127,9 @@ func (c *containerConfig) image() string {
 func (c *containerConfig) config() *enginecontainer.Config {
 	config := &enginecontainer.Config{
 		Labels:      c.labels(),
+		Tty:         c.spec().TTY,
 		User:        c.spec().User,
+		Hostname:    c.spec().Hostname,
 		Env:         c.spec().Env,
 		WorkingDir:  c.spec().Dir,
 		Image:       c.image(),
@@ -324,6 +327,12 @@ func (c *containerConfig) hostConfig() *enginecontainer.HostConfig {
 		GroupAdd:  c.spec().Groups,
 	}
 
+	if c.spec().DNSConfig != nil {
+		hc.DNS = c.spec().DNSConfig.Nameservers
+		hc.DNSSearch = c.spec().DNSConfig.Search
+		hc.DNSOptions = c.spec().DNSConfig.Options
+	}
+
 	if c.task.LogDriver != nil {
 		hc.LogConfig = enginecontainer.LogConfig{
 			Type:   c.task.LogDriver.Name,
@@ -335,7 +344,7 @@ func (c *containerConfig) hostConfig() *enginecontainer.HostConfig {
 }
 
 // This handles the case of volumes that are defined inside a service Mount
-func (c *containerConfig) volumeCreateRequest(mount *api.Mount) *types.VolumeCreateRequest {
+func (c *containerConfig) volumeCreateRequest(mount *api.Mount) *volumetypes.VolumesCreateBody {
 	var (
 		driverName string
 		driverOpts map[string]string
@@ -349,7 +358,7 @@ func (c *containerConfig) volumeCreateRequest(mount *api.Mount) *types.VolumeCre
 	}
 
 	if mount.VolumeOptions != nil {
-		return &types.VolumeCreateRequest{
+		return &volumetypes.VolumesCreateBody{
 			Name:       mount.Source,
 			Driver:     driverName,
 			DriverOpts: driverOpts,

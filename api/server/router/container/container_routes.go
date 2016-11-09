@@ -32,11 +32,11 @@ func (s *containerRouter) getContainersJSON(ctx context.Context, w http.Response
 	}
 
 	config := &types.ContainerListOptions{
-		All:    httputils.BoolValue(r, "all"),
-		Size:   httputils.BoolValue(r, "size"),
-		Since:  r.Form.Get("since"),
-		Before: r.Form.Get("before"),
-		Filter: filter,
+		All:     httputils.BoolValue(r, "all"),
+		Size:    httputils.BoolValue(r, "size"),
+		Since:   r.Form.Get("since"),
+		Before:  r.Form.Get("before"),
+		Filters: filter,
 	}
 
 	if tmpLimit := r.Form.Get("limit"); tmpLimit != "" {
@@ -283,8 +283,8 @@ func (s *containerRouter) postContainersWait(ctx context.Context, w http.Respons
 		return err
 	}
 
-	return httputils.WriteJSON(w, http.StatusOK, &types.ContainerWaitResponse{
-		StatusCode: status,
+	return httputils.WriteJSON(w, http.StatusOK, &container.ContainerWaitOKBody{
+		StatusCode: int64(status),
 	})
 }
 

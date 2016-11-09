@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/cli"
 	"github.com/docker/docker/cli/command"
+	"github.com/docker/docker/client"
 	"github.com/docker/docker/opts"
 	runconfigopts "github.com/docker/docker/runconfig/opts"
 	"github.com/docker/go-connections/nat"
@@ -42,19 +43,28 @@ func newUpdateCommand(dockerCli *command.DockerCli) *cobra.Command {
 	addServiceFlags(cmd, opts)
 
 	flags.Var(newListOptsVar(), flagEnvRemove, "Remove an environment variable")
-	flags.Var(newListOptsVar(), flagGroupRemove, "Remove previously added supplementary user groups from the container")
+	flags.Var(newListOptsVar(), flagGroupRemove, "Remove a previously added supplementary user group from the container")
 	flags.Var(newListOptsVar(), flagLabelRemove, "Remove a label by its key")
 	flags.Var(newListOptsVar(), flagContainerLabelRemove, "Remove a container label by its key")
 	flags.Var(newListOptsVar(), flagMountRemove, "Remove a mount by its target path")
 	flags.Var(newListOptsVar(), flagPublishRemove, "Remove a published port by its target port")
 	flags.Var(newListOptsVar(), flagConstraintRemove, "Remove a constraint")
-	flags.Var(&opts.labels, flagLabelAdd, "Add or update service labels")
-	flags.Var(&opts.containerLabels, flagContainerLabelAdd, "Add or update container labels")
-	flags.Var(&opts.env, flagEnvAdd, "Add or update environment variables")
+	flags.Var(newListOptsVar(), flagDNSRemove, "Remove custom DNS servers")
+	flags.Var(newListOptsVar(), flagDNSOptionsRemove, "Remove DNS options")
+	flags.Var(newListOptsVar(), flagDNSSearchRemove, "Remove DNS search domains")
+	flags.Var(&opts.labels, flagLabelAdd, "Add or update a service label")
+	flags.Var(&opts.containerLabels, flagContainerLabelAdd, "Add or update a container label")
+	flags.Var(&opts.env, flagEnvAdd, "Add or update an environment variable")
+	flags.Var(newListOptsVar(), flagSecretRemove, "Remove a secret")
+	flags.Var(&opts.secrets, flagSecretAdd, "Add or update a secret on a service")
 	flags.Var(&opts.mounts, flagMountAdd, "Add or update a mount on a service")
-	flags.StringSliceVar(&opts.constraints, flagConstraintAdd, []string{}, "Add or update placement constraints")
+	flags.Var(&opts.constraints, flagConstraintAdd, "Add or update a placement constraint")
 	flags.Var(&opts.endpoint.ports, flagPublishAdd, "Add or update a published port")
-	flags.StringSliceVar(&opts.groups, flagGroupAdd, []string{}, "Add additional supplementary user groups to the container")
+	flags.Var(&opts.groups, flagGroupAdd, "Add an additional supplementary user group to the container")
+	flags.Var(&opts.dns, flagDNSAdd, "Add or update custom DNS servers")
+	flags.Var(&opts.dnsOptions, flagDNSOptionsAdd, "Add or update DNS options")
+	flags.Var(&opts.dnsSearch, flagDNSSearchAdd, "Add or update custom DNS search domains")
+
 	return cmd
 }
 
@@ -89,6 +99,13 @@ func runUpdate(dockerCli *command.DockerCli, flags *pflag.FlagSet, serviceID str
 	if err != nil {
 		return err
 	}
+
+	updatedSecrets, err := getUpdatedSecrets(apiClient, flags, spec.TaskTemplate.ContainerSpec.Secrets)
+	if err != nil {
+		return err
+	}
+
+	spec.TaskTemplate.ContainerSpec.Secrets = updatedSecrets
 
 	// only send auth if flag was set
 	sendAuth, err := flags.GetBool(flagRegistryAuth)
@@ -132,9 +149,9 @@ func updateService(flags *pflag.FlagSet, spec *swarm.ServiceSpec) error {
 		}
 	}
 
-	updateFloat32 := func(flag string, field *float32) {
+	updateFloatValue := func(flag string, field *float32) {
 		if flags.Changed(flag) {
-			*field, _ = flags.GetFloat32(flag)
+			*field = flags.Lookup(flag).Value.(*floatValue).Value()
 		}
 	}
 
@@ -181,7 +198,9 @@ func updateService(flags *pflag.FlagSet, spec *swarm.ServiceSpec) error {
 	updateEnvironment(flags, &cspec.Env)
 	updateString(flagWorkdir, &cspec.Dir)
 	updateString(flagUser, &cspec.User)
-	updateMounts(flags, &cspec.Mounts)
+	if err := updateMounts(flags, &cspec.Mounts); err != nil {
+		return err
+	}
 
 	if flags.Changed(flagLimitCPU) || flags.Changed(flagLimitMemory) {
 		taskResources().Limits = &swarm.Resources{}
@@ -229,7 +248,7 @@ func updateService(flags *pflag.FlagSet, spec *swarm.ServiceSpec) error {
 		updateDuration(flagUpdateDelay, &spec.UpdateConfig.Delay)
 		updateDuration(flagUpdateMonitor, &spec.UpdateConfig.Monitor)
 		updateString(flagUpdateFailureAction, &spec.UpdateConfig.FailureAction)
-		updateFloat32(flagUpdateMaxFailureRatio, &spec.UpdateConfig.MaxFailureRatio)
+		updateFloatValue(flagUpdateMaxFailureRatio, &spec.UpdateConfig.MaxFailureRatio)
 	}
 
 	if flags.Changed(flagEndpointMode) {
@@ -255,6 +274,15 @@ func updateService(flags *pflag.FlagSet, spec *swarm.ServiceSpec) error {
 		}
 	}
 
+	if anyChanged(flags, flagDNSAdd, flagDNSRemove, flagDNSOptionsAdd, flagDNSOptionsRemove, flagDNSSearchAdd, flagDNSSearchRemove) {
+		if cspec.DNSConfig == nil {
+			cspec.DNSConfig = &swarm.DNSConfig{}
+		}
+		if err := updateDNSConfig(flags, &cspec.DNSConfig); err != nil {
+			return err
+		}
+	}
+
 	if err := updateLogDriver(flags, &spec.TaskTemplate); err != nil {
 		return err
 	}
@@ -270,6 +298,14 @@ func updateService(flags *pflag.FlagSet, spec *swarm.ServiceSpec) error {
 
 	if err := updateHealthcheck(flags, cspec); err != nil {
 		return err
+	}
+
+	if flags.Changed(flagTTY) {
+		tty, err := flags.GetBool(flagTTY)
+		if err != nil {
+			return err
+		}
+		cspec.TTY = tty
 	}
 
 	return nil
@@ -296,11 +332,22 @@ func anyChanged(flags *pflag.FlagSet, fields ...string) bool {
 }
 
 func updatePlacement(flags *pflag.FlagSet, placement *swarm.Placement) {
-	field, _ := flags.GetStringSlice(flagConstraintAdd)
-	placement.Constraints = append(placement.Constraints, field...)
-
+	if flags.Changed(flagConstraintAdd) {
+		values := flags.Lookup(flagConstraintAdd).Value.(*opts.ListOpts).GetAll()
+		placement.Constraints = append(placement.Constraints, values...)
+	}
 	toRemove := buildToRemoveSet(flags, flagConstraintRemove)
-	placement.Constraints = removeItems(placement.Constraints, toRemove, itemKey)
+
+	newConstraints := []string{}
+	for _, constraint := range placement.Constraints {
+		if _, exists := toRemove[constraint]; !exists {
+			newConstraints = append(newConstraints, constraint)
+		}
+	}
+	// Sort so that result is predictable.
+	sort.Strings(newConstraints)
+
+	placement.Constraints = newConstraints
 }
 
 func updateContainerLabels(flags *pflag.FlagSet, field *map[string]string) {
@@ -364,6 +411,27 @@ func updateEnvironment(flags *pflag.FlagSet, field *[]string) {
 	*field = removeItems(*field, toRemove, envKey)
 }
 
+func getUpdatedSecrets(apiClient client.APIClient, flags *pflag.FlagSet, secrets []*swarm.SecretReference) ([]*swarm.SecretReference, error) {
+	if flags.Changed(flagSecretAdd) {
+		values := flags.Lookup(flagSecretAdd).Value.(*opts.SecretOpt).Value()
+
+		addSecrets, err := parseSecrets(apiClient, values)
+		if err != nil {
+			return nil, err
+		}
+		secrets = append(secrets, addSecrets...)
+	}
+	toRemove := buildToRemoveSet(flags, flagSecretRemove)
+	newSecrets := []*swarm.SecretReference{}
+	for _, secret := range secrets {
+		if _, exists := toRemove[secret.SecretName]; !exists {
+			newSecrets = append(newSecrets, secret)
+		}
+	}
+
+	return newSecrets, nil
+}
+
 func envKey(value string) string {
 	kv := strings.SplitN(value, "=", 2)
 	return kv[0]
@@ -402,28 +470,58 @@ func removeItems(
 	return newSeq
 }
 
-func updateMounts(flags *pflag.FlagSet, mounts *[]mounttypes.Mount) {
-	if flags.Changed(flagMountAdd) {
-		values := flags.Lookup(flagMountAdd).Value.(*MountOpt).Value()
-		*mounts = append(*mounts, values...)
+type byMountSource []mounttypes.Mount
+
+func (m byMountSource) Len() int      { return len(m) }
+func (m byMountSource) Swap(i, j int) { m[i], m[j] = m[j], m[i] }
+func (m byMountSource) Less(i, j int) bool {
+	a, b := m[i], m[j]
+
+	if a.Source == b.Source {
+		return a.Target < b.Target
 	}
-	toRemove := buildToRemoveSet(flags, flagMountRemove)
+
+	return a.Source < b.Source
+}
+
+func updateMounts(flags *pflag.FlagSet, mounts *[]mounttypes.Mount) error {
+
+	mountsByTarget := map[string]mounttypes.Mount{}
+
+	if flags.Changed(flagMountAdd) {
+		values := flags.Lookup(flagMountAdd).Value.(*opts.MountOpt).Value()
+		for _, mount := range values {
+			if _, ok := mountsByTarget[mount.Target]; ok {
+				return fmt.Errorf("duplicate mount target")
+			}
+			mountsByTarget[mount.Target] = mount
+		}
+	}
+
+	// Add old list of mount points minus updated one.
+	for _, mount := range *mounts {
+		if _, ok := mountsByTarget[mount.Target]; !ok {
+			mountsByTarget[mount.Target] = mount
+		}
+	}
 
 	newMounts := []mounttypes.Mount{}
-	for _, mount := range *mounts {
+
+	toRemove := buildToRemoveSet(flags, flagMountRemove)
+
+	for _, mount := range mountsByTarget {
 		if _, exists := toRemove[mount.Target]; !exists {
 			newMounts = append(newMounts, mount)
 		}
 	}
+	sort.Sort(byMountSource(newMounts))
 	*mounts = newMounts
+	return nil
 }
 
 func updateGroups(flags *pflag.FlagSet, groups *[]string) error {
 	if flags.Changed(flagGroupAdd) {
-		values, err := flags.GetStringSlice(flagGroupAdd)
-		if err != nil {
-			return err
-		}
+		values := flags.Lookup(flagGroupAdd).Value.(*opts.ListOpts).GetAll()
 		*groups = append(*groups, values...)
 	}
 	toRemove := buildToRemoveSet(flags, flagGroupRemove)
@@ -438,6 +536,71 @@ func updateGroups(flags *pflag.FlagSet, groups *[]string) error {
 	sort.Strings(newGroups)
 
 	*groups = newGroups
+	return nil
+}
+
+func removeDuplicates(entries []string) []string {
+	hit := map[string]bool{}
+	newEntries := []string{}
+	for _, v := range entries {
+		if !hit[v] {
+			newEntries = append(newEntries, v)
+			hit[v] = true
+		}
+	}
+	return newEntries
+}
+
+func updateDNSConfig(flags *pflag.FlagSet, config **swarm.DNSConfig) error {
+	newConfig := &swarm.DNSConfig{}
+
+	nameservers := (*config).Nameservers
+	if flags.Changed(flagDNSAdd) {
+		values := flags.Lookup(flagDNSAdd).Value.(*opts.ListOpts).GetAll()
+		nameservers = append(nameservers, values...)
+	}
+	nameservers = removeDuplicates(nameservers)
+	toRemove := buildToRemoveSet(flags, flagDNSRemove)
+	for _, nameserver := range nameservers {
+		if _, exists := toRemove[nameserver]; !exists {
+			newConfig.Nameservers = append(newConfig.Nameservers, nameserver)
+
+		}
+	}
+	// Sort so that result is predictable.
+	sort.Strings(newConfig.Nameservers)
+
+	search := (*config).Search
+	if flags.Changed(flagDNSSearchAdd) {
+		values := flags.Lookup(flagDNSSearchAdd).Value.(*opts.ListOpts).GetAll()
+		search = append(search, values...)
+	}
+	search = removeDuplicates(search)
+	toRemove = buildToRemoveSet(flags, flagDNSSearchRemove)
+	for _, entry := range search {
+		if _, exists := toRemove[entry]; !exists {
+			newConfig.Search = append(newConfig.Search, entry)
+		}
+	}
+	// Sort so that result is predictable.
+	sort.Strings(newConfig.Search)
+
+	options := (*config).Options
+	if flags.Changed(flagDNSOptionsAdd) {
+		values := flags.Lookup(flagDNSOptionsAdd).Value.(*opts.ListOpts).GetAll()
+		options = append(options, values...)
+	}
+	options = removeDuplicates(options)
+	toRemove = buildToRemoveSet(flags, flagDNSOptionsRemove)
+	for _, option := range options {
+		if _, exists := toRemove[option]; !exists {
+			newConfig.Options = append(newConfig.Options, option)
+		}
+	}
+	// Sort so that result is predictable.
+	sort.Strings(newConfig.Options)
+
+	*config = newConfig
 	return nil
 }
 

@@ -1,7 +1,7 @@
 ---
 title: "create"
 description: "The create command description and usage"
-keywords: ["docker, create, container"]
+keywords: "docker, create, container"
 ---
 
 <!-- This file is maintained within the docker/docker Github
@@ -31,10 +31,14 @@ Options:
       --cap-drop value              Drop Linux capabilities (default [])
       --cgroup-parent string        Optional parent cgroup for the container
       --cidfile string              Write the container ID to the file
+      --cpu-count int               The number of CPUs available for execution by the container.
+                                    Windows daemon only. On Windows Server containers, this is
+                                    approximated as a percentage of total CPU usage.
       --cpu-percent int             CPU percent (Windows only)
       --cpu-period int              Limit CPU CFS (Completely Fair Scheduler) period
       --cpu-quota int               Limit CPU CFS (Completely Fair Scheduler) quota
   -c, --cpu-shares int              CPU shares (relative weight)
+      --cpus NanoCPUs               Number of CPUs (default 0.000)
       --cpu-rt-period int           Limit the CPU real-time period in microseconds
       --cpu-rt-runtime int          Limit the CPU real-time runtime in microseconds
       --cpuset-cpus string          CPUs in which to allow execution (0-3, 0,1)
@@ -54,9 +58,9 @@ Options:
       --expose value                Expose a port or a range of ports (default [])
       --group-add value             Add additional groups to join (default [])
       --health-cmd string           Command to run to check health
-      --health-interval duration    Time between running the check
+      --health-interval duration    Time between running the check (ns|us|ms|s|m|h) (default 0s)
       --health-retries int          Consecutive failures needed to report unhealthy
-      --health-timeout duration     Maximum time to allow one check to run
+      --health-timeout duration     Maximum time to allow one check to run (ns|us|ms|s|m|h) (default 0s)
       --help                        Print usage
   -h, --hostname string             Container host name
   -i, --interactive                 Keep STDIN open even if not attached
@@ -78,6 +82,7 @@ Options:
       --memory-reservation string   Memory soft limit
       --memory-swap string          Swap limit equal to memory plus swap: '-1' to enable unlimited swap
       --memory-swappiness int       Tune container memory swappiness (0 to 100) (default -1)
+      --mount value                 Attach a filesytem mount to the container (default [])
       --name string                 Assign a name to the container
       --network-alias value         Add network-scoped alias for the container (default [])
       --network string              Connect a container to a network (default "default")

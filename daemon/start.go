@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/docker/docker/api/errors"
+	apierrors "github.com/docker/docker/api/errors"
 	"github.com/docker/docker/api/types"
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/container"
@@ -21,7 +21,7 @@ import (
 // ContainerStart starts a container.
 func (daemon *Daemon) ContainerStart(name string, hostConfig *containertypes.HostConfig, validateHostname bool, checkpoint string, checkpointDir string) error {
 	if checkpoint != "" && !daemon.HasExperimental() {
-		return errors.NewBadRequestError(fmt.Errorf("checkpoint is only supported in experimental mode"))
+		return apierrors.NewBadRequestError(fmt.Errorf("checkpoint is only supported in experimental mode"))
 	}
 
 	container, err := daemon.GetContainer(name)
@@ -35,7 +35,7 @@ func (daemon *Daemon) ContainerStart(name string, hostConfig *containertypes.Hos
 
 	if container.IsRunning() {
 		err := fmt.Errorf("Container already started")
-		return errors.NewErrorWithStatusCode(err, http.StatusNotModified)
+		return apierrors.NewErrorWithStatusCode(err, http.StatusNotModified)
 	}
 
 	// Windows does not have the backwards compatibility issue here.
@@ -78,8 +78,10 @@ func (daemon *Daemon) ContainerStart(name string, hostConfig *containertypes.Hos
 	}
 	// Adapt for old containers in case we have updates in this function and
 	// old containers never have chance to call the new function in create stage.
-	if err := daemon.adaptContainerSettings(container.HostConfig, false); err != nil {
-		return err
+	if hostConfig != nil {
+		if err := daemon.adaptContainerSettings(container.HostConfig, false); err != nil {
+			return err
+		}
 	}
 
 	return daemon.containerStart(container, checkpoint, checkpointDir, true)
@@ -161,23 +163,26 @@ func (daemon *Daemon) containerStart(container *container.Container, checkpoint 
 
 	if err := daemon.containerd.Create(container.ID, checkpoint, checkpointDir, *spec, container.InitializeStdio, createOptions...); err != nil {
 		errDesc := grpc.ErrorDesc(err)
+		contains := func(s1, s2 string) bool {
+			return strings.Contains(strings.ToLower(s1), s2)
+		}
 		logrus.Errorf("Create container failed with error: %s", errDesc)
 		// if we receive an internal error from the initial start of a container then lets
 		// return it instead of entering the restart loop
 		// set to 127 for container cmd not found/does not exist)
-		if strings.Contains(errDesc, container.Path) &&
-			(strings.Contains(errDesc, "executable file not found") ||
-				strings.Contains(errDesc, "no such file or directory") ||
-				strings.Contains(errDesc, "system cannot find the file specified")) {
+		if contains(errDesc, container.Path) &&
+			(contains(errDesc, "executable file not found") ||
+				contains(errDesc, "no such file or directory") ||
+				contains(errDesc, "system cannot find the file specified")) {
 			container.SetExitCode(127)
 		}
 		// set to 126 for container cmd can't be invoked errors
-		if strings.Contains(errDesc, syscall.EACCES.Error()) {
+		if contains(errDesc, syscall.EACCES.Error()) {
 			container.SetExitCode(126)
 		}
 
 		// attempted to mount a file onto a directory, or a directory onto a file, maybe from user specified bind mounts
-		if strings.Contains(errDesc, syscall.ENOTDIR.Error()) {
+		if contains(errDesc, syscall.ENOTDIR.Error()) {
 			errDesc += ": Are you trying to mount a directory onto a file (or vice-versa)? Check if the specified host path exists and is the expected type"
 			container.SetExitCode(127)
 		}
@@ -205,6 +210,10 @@ func (daemon *Daemon) Cleanup(container *container.Container) {
 		if mountid, err := daemon.layerStore.GetMountID(container.ID); err == nil {
 			daemon.cleanupMountsByID(mountid)
 		}
+	}
+
+	if err := container.UnmountSecrets(); err != nil {
+		logrus.Warnf("%s cleanup: failed to unmount secrets: %s", container.ID, err)
 	}
 
 	for _, eConfig := range container.ExecCommands.Commands() {

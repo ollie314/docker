@@ -62,7 +62,7 @@ func (pm *Manager) Pull(name string, metaHeader http.Header, authConfig *types.A
 	name = ref.String()
 
 	if p, _ := pm.pluginStore.GetByName(name); p != nil {
-		logrus.Debugf("plugin already exists")
+		logrus.Debug("plugin already exists")
 		return nil, fmt.Errorf("%s exists", name)
 	}
 
@@ -85,8 +85,8 @@ func (pm *Manager) Pull(name string, metaHeader http.Header, authConfig *types.A
 	}
 
 	tag := distribution.GetTag(ref)
-	p := v2.NewPlugin(ref.Name(), pluginID, pm.runRoot, tag)
-	if err := p.InitPlugin(pm.libRoot); err != nil {
+	p := v2.NewPlugin(ref.Name(), pluginID, pm.runRoot, pm.libRoot, tag)
+	if err := p.InitPlugin(); err != nil {
 		return nil, err
 	}
 	pm.pluginStore.Add(p)
@@ -162,6 +162,7 @@ func (pm *Manager) Remove(name string, config *types.PluginRmConfig) error {
 	}
 
 	pm.pluginStore.Remove(p)
+	os.RemoveAll(filepath.Join(pm.libRoot, p.GetID()))
 	pm.pluginEventLogger(p.GetID(), name, "remove")
 	return nil
 }

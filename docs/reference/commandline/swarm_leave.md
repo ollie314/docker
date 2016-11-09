@@ -1,7 +1,7 @@
 ---
 title: "swarm leave"
 description: "The swarm leave command description and usage"
-keywords: ["swarm, leave"]
+keywords: "swarm, leave"
 ---
 
 <!-- This file is maintained within the docker/docker Github
@@ -16,12 +16,12 @@ keywords: ["swarm, leave"]
 # swarm leave
 
 ```markdown
-Usage:  docker swarm leave [OPTIONS]
+Usage:	docker swarm leave [OPTIONS]
 
-Leave the swarm (workers only).
+Leave the swarm (workers only)
 
 Options:
-      --force   Force this node to leave the swarm, ignoring warnings
+  -f, --force   Force this node to leave the swarm, ignoring warnings
       --help    Print usage
 ```
 

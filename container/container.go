@@ -89,8 +89,9 @@ type CommonContainer struct {
 	HasBeenStartedBefore   bool
 	HasBeenManuallyStopped bool // used for unless-stopped restart policy
 	MountPoints            map[string]*volume.MountPoint
-	HostConfig             *containertypes.HostConfig `json:"-"` // do not serialize the host config in the json, otherwise we'll make the container unportable
-	ExecCommands           *exec.Store                `json:"-"`
+	HostConfig             *containertypes.HostConfig        `json:"-"` // do not serialize the host config in the json, otherwise we'll make the container unportable
+	ExecCommands           *exec.Store                       `json:"-"`
+	Secrets                []*containertypes.ContainerSecret `json:"-"` // do not serialize
 	// logDriver for closing
 	LogDriver      logger.Logger  `json:"-"`
 	LogCopier      *logger.Copier `json:"-"`
@@ -147,7 +148,7 @@ func (container *Container) ToDisk() error {
 		return err
 	}
 
-	jsonSource, err := ioutils.NewAtomicFileWriter(pth, 0666)
+	jsonSource, err := ioutils.NewAtomicFileWriter(pth, 0644)
 	if err != nil {
 		return err
 	}
@@ -207,7 +208,7 @@ func (container *Container) WriteHostConfig() error {
 		return err
 	}
 
-	f, err := ioutils.NewAtomicFileWriter(pth, 0666)
+	f, err := ioutils.NewAtomicFileWriter(pth, 0644)
 	if err != nil {
 		return err
 	}

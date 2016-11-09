@@ -4567,3 +4567,285 @@ func (s *DockerSuite) TestRunServicingContainer(c *check.C) {
 	c.Assert(out2, checker.Contains, `Windows Container (Servicing)`, check.Commentf("Didn't find 'Windows Container (Servicing): %s", out2))
 	c.Assert(out2, checker.Contains, containerID+"_servicing", check.Commentf("Didn't find '%s_servicing': %s", containerID+"_servicing", out2))
 }
+
+func (s *DockerSuite) TestRunDuplicateMount(c *check.C) {
+	testRequires(c, SameHostDaemon, DaemonIsLinux)
+
+	tmpFile, err := ioutil.TempFile("", "touch-me")
+	c.Assert(err, checker.IsNil)
+	defer tmpFile.Close()
+
+	data := "touch-me-foo-bar\n"
+	if _, err := tmpFile.Write([]byte(data)); err != nil {
+		c.Fatal(err)
+	}
+
+	name := "test"
+	out, _ := dockerCmd(c, "run", "--name", name, "-v", "/tmp:/tmp", "-v", "/tmp:/tmp", "busybox", "sh", "-c", "cat "+tmpFile.Name()+" && ls /")
+	c.Assert(out, checker.Not(checker.Contains), "tmp:")
+	c.Assert(out, checker.Contains, data)
+
+	out = inspectFieldJSON(c, name, "Config.Volumes")
+	c.Assert(out, checker.Contains, "null")
+}
+
+func (s *DockerSuite) TestRunMount(c *check.C) {
+	testRequires(c, DaemonIsLinux, SameHostDaemon, NotUserNamespace)
+
+	// mnt1, mnt2, and testCatFooBar are commonly used in multiple test cases
+	tmpDir, err := ioutil.TempDir("", "mount")
+	if err != nil {
+		c.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+	mnt1, mnt2 := path.Join(tmpDir, "mnt1"), path.Join(tmpDir, "mnt2")
+	if err := os.Mkdir(mnt1, 0755); err != nil {
+		c.Fatal(err)
+	}
+	if err := os.Mkdir(mnt2, 0755); err != nil {
+		c.Fatal(err)
+	}
+	if err := ioutil.WriteFile(path.Join(mnt1, "test1"), []byte("test1"), 0644); err != nil {
+		c.Fatal(err)
+	}
+	if err := ioutil.WriteFile(path.Join(mnt2, "test2"), []byte("test2"), 0644); err != nil {
+		c.Fatal(err)
+	}
+	testCatFooBar := func(cName string) error {
+		out, _ := dockerCmd(c, "exec", cName, "cat", "/foo/test1")
+		if out != "test1" {
+			return fmt.Errorf("%s not mounted on /foo", mnt1)
+		}
+		out, _ = dockerCmd(c, "exec", cName, "cat", "/bar/test2")
+		if out != "test2" {
+			return fmt.Errorf("%s not mounted on /bar", mnt2)
+		}
+		return nil
+	}
+
+	type testCase struct {
+		equivalents [][]string
+		valid       bool
+		// fn should be nil if valid==false
+		fn func(cName string) error
+	}
+	cases := []testCase{
+		{
+			equivalents: [][]string{
+				{
+					"--mount", fmt.Sprintf("type=bind,src=%s,dst=/foo", mnt1),
+					"--mount", fmt.Sprintf("type=bind,src=%s,dst=/bar", mnt2),
+				},
+				{
+					"--mount", fmt.Sprintf("type=bind,src=%s,dst=/foo", mnt1),
+					"--mount", fmt.Sprintf("type=bind,src=%s,target=/bar", mnt2),
+				},
+				{
+					"--volume", fmt.Sprintf("%s:/foo", mnt1),
+					"--mount", fmt.Sprintf("type=bind,src=%s,target=/bar", mnt2),
+				},
+			},
+			valid: true,
+			fn:    testCatFooBar,
+		},
+		{
+			equivalents: [][]string{
+				{
+					"--mount", fmt.Sprintf("type=volume,src=%s,dst=/foo", mnt1),
+					"--mount", fmt.Sprintf("type=volume,src=%s,dst=/bar", mnt2),
+				},
+				{
+					"--mount", fmt.Sprintf("type=volume,src=%s,dst=/foo", mnt1),
+					"--mount", fmt.Sprintf("type=volume,src=%s,target=/bar", mnt2),
+				},
+			},
+			valid: false,
+		},
+		{
+			equivalents: [][]string{
+				{
+					"--mount", fmt.Sprintf("type=bind,src=%s,dst=/foo", mnt1),
+					"--mount", fmt.Sprintf("type=volume,src=%s,dst=/bar", mnt2),
+				},
+				{
+					"--volume", fmt.Sprintf("%s:/foo", mnt1),
+					"--mount", fmt.Sprintf("type=volume,src=%s,target=/bar", mnt2),
+				},
+			},
+			valid: false,
+			fn:    testCatFooBar,
+		},
+		{
+			equivalents: [][]string{
+				{
+					"--read-only",
+					"--mount", "type=volume,dst=/bar",
+				},
+			},
+			valid: true,
+			fn: func(cName string) error {
+				_, _, err := dockerCmdWithError("exec", cName, "touch", "/bar/icanwritehere")
+				return err
+			},
+		},
+		{
+			equivalents: [][]string{
+				{
+					"--read-only",
+					"--mount", fmt.Sprintf("type=bind,src=%s,dst=/foo", mnt1),
+					"--mount", "type=volume,dst=/bar",
+				},
+				{
+					"--read-only",
+					"--volume", fmt.Sprintf("%s:/foo", mnt1),
+					"--mount", "type=volume,dst=/bar",
+				},
+			},
+			valid: true,
+			fn: func(cName string) error {
+				out, _ := dockerCmd(c, "exec", cName, "cat", "/foo/test1")
+				if out != "test1" {
+					return fmt.Errorf("%s not mounted on /foo", mnt1)
+				}
+				_, _, err := dockerCmdWithError("exec", cName, "touch", "/bar/icanwritehere")
+				return err
+			},
+		},
+		{
+			equivalents: [][]string{
+				{
+					"--mount", fmt.Sprintf("type=bind,src=%s,dst=/foo", mnt1),
+					"--mount", fmt.Sprintf("type=bind,src=%s,dst=/foo", mnt2),
+				},
+				{
+					"--mount", fmt.Sprintf("type=bind,src=%s,dst=/foo", mnt1),
+					"--mount", fmt.Sprintf("type=bind,src=%s,target=/foo", mnt2),
+				},
+				{
+					"--volume", fmt.Sprintf("%s:/foo", mnt1),
+					"--mount", fmt.Sprintf("type=bind,src=%s,target=/foo", mnt2),
+				},
+			},
+			valid: false,
+		},
+		{
+			equivalents: [][]string{
+				{
+					"--volume", fmt.Sprintf("%s:/foo", mnt1),
+					"--mount", fmt.Sprintf("type=volume,src=%s,target=/foo", mnt2),
+				},
+			},
+			valid: false,
+		},
+		{
+			equivalents: [][]string{
+				{
+					"--mount", "type=volume,target=/foo",
+					"--mount", "type=volume,target=/foo",
+				},
+			},
+			valid: false,
+		},
+	}
+
+	for i, testCase := range cases {
+		for j, opts := range testCase.equivalents {
+			cName := fmt.Sprintf("mount-%d-%d", i, j)
+			_, _, err := dockerCmdWithError(append([]string{"run", "-i", "-d", "--name", cName},
+				append(opts, []string{"busybox", "top"}...)...)...)
+			if testCase.valid {
+				c.Assert(err, check.IsNil,
+					check.Commentf("got error while creating a container with %v (%s)", opts, cName))
+				c.Assert(testCase.fn(cName), check.IsNil,
+					check.Commentf("got error while executing test for %v (%s)", opts, cName))
+				dockerCmd(c, "rm", "-f", cName)
+			} else {
+				c.Assert(err, checker.NotNil,
+					check.Commentf("got nil while creating a container with %v (%s)", opts, cName))
+			}
+		}
+	}
+}
+
+func (s *DockerSuite) TestRunWindowsWithCPUCount(c *check.C) {
+	testRequires(c, DaemonIsWindows)
+
+	out, _ := dockerCmd(c, "run", "--cpu-count=1", "--name", "test", "busybox", "echo", "testing")
+	c.Assert(strings.TrimSpace(out), checker.Equals, "testing")
+
+	out = inspectField(c, "test", "HostConfig.CPUCount")
+	c.Assert(out, check.Equals, "1")
+}
+
+func (s *DockerSuite) TestRunWindowsWithCPUShares(c *check.C) {
+	testRequires(c, DaemonIsWindows)
+
+	out, _ := dockerCmd(c, "run", "--cpu-shares=1000", "--name", "test", "busybox", "echo", "testing")
+	c.Assert(strings.TrimSpace(out), checker.Equals, "testing")
+
+	out = inspectField(c, "test", "HostConfig.CPUShares")
+	c.Assert(out, check.Equals, "1000")
+}
+
+func (s *DockerSuite) TestRunWindowsWithCPUPercent(c *check.C) {
+	testRequires(c, DaemonIsWindows)
+
+	out, _ := dockerCmd(c, "run", "--cpu-percent=80", "--name", "test", "busybox", "echo", "testing")
+	c.Assert(strings.TrimSpace(out), checker.Equals, "testing")
+
+	out = inspectField(c, "test", "HostConfig.CPUPercent")
+	c.Assert(out, check.Equals, "80")
+}
+
+func (s *DockerSuite) TestRunProcessIsolationWithCPUCountCPUSharesAndCPUPercent(c *check.C) {
+	testRequires(c, DaemonIsWindows, IsolationIsProcess)
+
+	out, _ := dockerCmd(c, "run", "--cpu-count=1", "--cpu-shares=1000", "--cpu-percent=80", "--name", "test", "busybox", "echo", "testing")
+	c.Assert(strings.TrimSpace(out), checker.Contains, "WARNING: Conflicting options: CPU count takes priority over CPU shares on Windows Server Containers. CPU shares discarded")
+	c.Assert(strings.TrimSpace(out), checker.Contains, "WARNING: Conflicting options: CPU count takes priority over CPU percent on Windows Server Containers. CPU percent discarded")
+	c.Assert(strings.TrimSpace(out), checker.Contains, "testing")
+
+	out = inspectField(c, "test", "HostConfig.CPUCount")
+	c.Assert(out, check.Equals, "1")
+
+	out = inspectField(c, "test", "HostConfig.CPUShares")
+	c.Assert(out, check.Equals, "0")
+
+	out = inspectField(c, "test", "HostConfig.CPUPercent")
+	c.Assert(out, check.Equals, "0")
+}
+
+func (s *DockerSuite) TestRunHypervIsolationWithCPUCountCPUSharesAndCPUPercent(c *check.C) {
+	testRequires(c, DaemonIsWindows, IsolationIsHyperv)
+
+	out, _ := dockerCmd(c, "run", "--cpu-count=1", "--cpu-shares=1000", "--cpu-percent=80", "--name", "test", "busybox", "echo", "testing")
+	c.Assert(strings.TrimSpace(out), checker.Contains, "testing")
+
+	out = inspectField(c, "test", "HostConfig.CPUCount")
+	c.Assert(out, check.Equals, "1")
+
+	out = inspectField(c, "test", "HostConfig.CPUShares")
+	c.Assert(out, check.Equals, "1000")
+
+	out = inspectField(c, "test", "HostConfig.CPUPercent")
+	c.Assert(out, check.Equals, "80")
+}
+
+// Test for #25099
+func (s *DockerSuite) TestRunEmptyEnv(c *check.C) {
+	testRequires(c, DaemonIsLinux)
+
+	expectedOutput := "invalid environment variable:"
+
+	out, _, err := dockerCmdWithError("run", "-e", "", "busybox", "true")
+	c.Assert(err, checker.NotNil)
+	c.Assert(out, checker.Contains, expectedOutput)
+
+	out, _, err = dockerCmdWithError("run", "-e", "=", "busybox", "true")
+	c.Assert(err, checker.NotNil)
+	c.Assert(out, checker.Contains, expectedOutput)
+
+	out, _, err = dockerCmdWithError("run", "-e", "=foo", "busybox", "true")
+	c.Assert(err, checker.NotNil)
+	c.Assert(out, checker.Contains, expectedOutput)
+}

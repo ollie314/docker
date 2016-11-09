@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,10 +13,10 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/cloudflare/cfssl/log"
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/links"
-	"github.com/docker/docker/pkg/fileutils"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/stringid"
@@ -25,6 +26,7 @@ import (
 	"github.com/opencontainers/runc/libcontainer/devices"
 	"github.com/opencontainers/runc/libcontainer/label"
 	"github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/pkg/errors"
 )
 
 func u32Ptr(i int64) *uint32     { u := uint32(i); return &u }
@@ -61,39 +63,6 @@ func (daemon *Daemon) setupLinkedContainers(container *container.Container) ([]s
 	}
 
 	return env, nil
-}
-
-// getSize returns the real size & virtual size of the container.
-func (daemon *Daemon) getSize(container *container.Container) (int64, int64) {
-	var (
-		sizeRw, sizeRootfs int64
-		err                error
-	)
-
-	if err := daemon.Mount(container); err != nil {
-		logrus.Errorf("Failed to compute size of container rootfs %s: %s", container.ID, err)
-		return sizeRw, sizeRootfs
-	}
-	defer daemon.Unmount(container)
-
-	sizeRw, err = container.RWLayer.Size()
-	if err != nil {
-		logrus.Errorf("Driver %s couldn't return diff size of container %s: %s",
-			daemon.GraphDriverName(), container.ID, err)
-		// FIXME: GetSize should return an error. Not changing it now in case
-		// there is a side-effect.
-		sizeRw = -1
-	}
-
-	if parent := container.RWLayer.Parent(); parent != nil {
-		sizeRootfs, err = parent.Size()
-		if err != nil {
-			sizeRootfs = -1
-		} else if sizeRw != -1 {
-			sizeRootfs += sizeRw
-		}
-	}
-	return sizeRw, sizeRootfs
 }
 
 func (daemon *Daemon) getIpcContainer(container *container.Container) (*container.Container, error) {
@@ -175,48 +144,73 @@ func (daemon *Daemon) setupIpcDirs(c *container.Container) error {
 	return nil
 }
 
-func (daemon *Daemon) mountVolumes(container *container.Container) error {
-	mounts, err := daemon.setupMounts(container)
-	if err != nil {
-		return err
+func (daemon *Daemon) setupSecretDir(c *container.Container) (setupErr error) {
+	if len(c.Secrets) == 0 {
+		return nil
 	}
 
-	for _, m := range mounts {
-		dest, err := container.GetResourcePath(m.Destination)
+	localMountPath := c.SecretMountPath()
+	logrus.Debugf("secrets: setting up secret dir: %s", localMountPath)
+
+	defer func() {
+		if setupErr != nil {
+			// cleanup
+			_ = detachMounted(localMountPath)
+
+			if err := os.RemoveAll(localMountPath); err != nil {
+				log.Errorf("error cleaning up secret mount: %s", err)
+			}
+		}
+	}()
+
+	// retrieve possible remapped range start for root UID, GID
+	rootUID, rootGID := daemon.GetRemappedUIDGID()
+	// create tmpfs
+	if err := idtools.MkdirAllAs(localMountPath, 0700, rootUID, rootGID); err != nil {
+		return errors.Wrap(err, "error creating secret local mount path")
+	}
+	tmpfsOwnership := fmt.Sprintf("uid=%d,gid=%d", rootUID, rootGID)
+	if err := mount.Mount("tmpfs", localMountPath, "tmpfs", "nodev,nosuid,noexec,"+tmpfsOwnership); err != nil {
+		return errors.Wrap(err, "unable to setup secret mount")
+	}
+
+	for _, s := range c.Secrets {
+		targetPath := filepath.Clean(s.Target)
+		// ensure that the target is a filename only; no paths allowed
+		if targetPath != filepath.Base(targetPath) {
+			return fmt.Errorf("error creating secret: secret must not be a path")
+		}
+
+		fPath := filepath.Join(localMountPath, targetPath)
+		if err := idtools.MkdirAllAs(filepath.Dir(fPath), 0700, rootUID, rootGID); err != nil {
+			return errors.Wrap(err, "error creating secret mount path")
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"name": s.Name,
+			"path": fPath,
+		}).Debug("injecting secret")
+		if err := ioutil.WriteFile(fPath, s.Data, s.Mode); err != nil {
+			return errors.Wrap(err, "error injecting secret")
+		}
+
+		uid, err := strconv.Atoi(s.UID)
+		if err != nil {
+			return err
+		}
+		gid, err := strconv.Atoi(s.GID)
 		if err != nil {
 			return err
 		}
 
-		var stat os.FileInfo
-		stat, err = os.Stat(m.Source)
-		if err != nil {
-			return err
+		if err := os.Chown(fPath, rootUID+uid, rootGID+gid); err != nil {
+			return errors.Wrap(err, "error setting ownership for secret")
 		}
-		if err = fileutils.CreateIfNotExists(dest, stat.IsDir()); err != nil {
-			return err
-		}
+	}
 
-		opts := "rbind,ro"
-		if m.Writable {
-			opts = "rbind,rw"
-		}
-
-		if err := mount.Mount(m.Source, dest, "bind", opts); err != nil {
-			return err
-		}
-
-		// mountVolumes() seems to be called for temporary mounts
-		// outside the container. Soon these will be unmounted with
-		// lazy unmount option and given we have mounted the rbind,
-		// all the submounts will propagate if these are shared. If
-		// daemon is running in host namespace and has / as shared
-		// then these unmounts will propagate and unmount original
-		// mount as well. So make all these mounts rprivate.
-		// Do not use propagation property of volume as that should
-		// apply only when mounting happen inside the container.
-		if err := mount.MakeRPrivate(dest); err != nil {
-			return err
-		}
+	// remount secrets ro
+	if err := mount.Mount("tmpfs", localMountPath, "tmpfs", "remount,ro,"+tmpfsOwnership); err != nil {
+		return errors.Wrap(err, "unable to remount secret dir as readonly")
 	}
 
 	return nil

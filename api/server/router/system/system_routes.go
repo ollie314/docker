@@ -13,8 +13,10 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/registry"
 	timetypes "github.com/docker/docker/api/types/time"
 	"github.com/docker/docker/api/types/versions"
+	"github.com/docker/docker/api/types/versions/v1p24"
 	"github.com/docker/docker/pkg/ioutils"
 	"golang.org/x/net/context"
 )
@@ -40,11 +42,16 @@ func (s *systemRouter) getInfo(ctx context.Context, w http.ResponseWriter, r *ht
 
 	if versions.LessThan(httputils.VersionFromContext(ctx), "1.25") {
 		// TODO: handle this conversion in engine-api
-		type oldInfo struct {
-			*types.Info
-			ExecutionDriver string
+		oldInfo := &v1p24.Info{
+			InfoBase:        info.InfoBase,
+			ExecutionDriver: "<not supported>",
 		}
-		return httputils.WriteJSON(w, http.StatusOK, &oldInfo{Info: info, ExecutionDriver: "<not supported>"})
+		for _, s := range info.SecurityOptions {
+			if s.Key == "Name" {
+				oldInfo.SecurityOptions = append(oldInfo.SecurityOptions, s.Value)
+			}
+		}
+		return httputils.WriteJSON(w, http.StatusOK, oldInfo)
 	}
 	return httputils.WriteJSON(w, http.StatusOK, info)
 }
@@ -154,7 +161,7 @@ func (s *systemRouter) postAuth(ctx context.Context, w http.ResponseWriter, r *h
 	if err != nil {
 		return err
 	}
-	return httputils.WriteJSON(w, http.StatusOK, &types.AuthResponse{
+	return httputils.WriteJSON(w, http.StatusOK, &registry.AuthenticateOKBody{
 		Status:        status,
 		IdentityToken: token,
 	})

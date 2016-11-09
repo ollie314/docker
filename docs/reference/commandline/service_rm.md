@@ -1,7 +1,7 @@
 ---
 title: "service rm"
 description: "The service rm command description and usage"
-keywords: ["service, rm"]
+keywords: "service, rm"
 ---
 
 <!-- This file is maintained within the docker/docker Github
@@ -36,7 +36,7 @@ For example, to remove the redis service:
 $ docker service rm redis
 redis
 $ docker service ls
-ID            NAME   SCALE  IMAGE        COMMAND
+ID  NAME  MODE  REPLICAS  IMAGE
 ```
 
 > **Warning**: Unlike `docker rm`, this command does not ask for confirmation

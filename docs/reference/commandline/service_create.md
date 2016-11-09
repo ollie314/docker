@@ -1,7 +1,7 @@
 ---
 title: "service create"
 description: "The service create command description and usage"
-keywords: ["service, create"]
+keywords: "service, create"
 ---
 
 <!-- This file is maintained within the docker/docker Github
@@ -21,43 +21,49 @@ Usage:  docker service create [OPTIONS] IMAGE [COMMAND] [ARG...]
 Create a new service
 
 Options:
-      --constraint value                 Placement constraints (default [])
-      --container-label value            Service container labels (default [])
+      --constraint list                  Placement constraints (default [])
+      --container-label list             Container labels (default [])
+      --dns list                         Set custom DNS servers (default [])
+      --dns-options list                 Set DNS options (default [])
+      --dns-search list                  Set custom DNS search domains (default [])
       --endpoint-mode string             Endpoint mode (vip or dnsrr)
-  -e, --env value                        Set environment variables (default [])
-      --env-file value                   Read in a file of environment variables (default [])
-      --group value                      Set one or more supplementary user groups for the container (default [])
+  -e, --env list                         Set environment variables (default [])
+      --env-file list                    Read in a file of environment variables (default [])
+      --group list                       Set one or more supplementary user groups for the container (default [])
       --health-cmd string                Command to run to check health
-      --health-interval duration         Time between running the check
+      --health-interval duration         Time between running the check (default none)
       --health-retries int               Consecutive failures needed to report unhealthy
-      --health-timeout duration          Maximum time to allow one check to run
+      --health-timeout duration          Maximum time to allow one check to run (default none)
       --help                             Print usage
-  -l, --label value                      Service labels (default [])
-      --limit-cpu value                  Limit CPUs (default 0.000)
-      --limit-memory value               Limit Memory (default 0 B)
+      --hostname string                  Container hostname
+  -l, --label list                       Service labels (default [])
+      --limit-cpu decimal                Limit CPUs (default 0.000)
+      --limit-memory bytes               Limit Memory (default 0 B)
       --log-driver string                Logging driver for service
-      --log-opt value                    Logging driver options (default [])
+      --log-opt list                     Logging driver options (default [])
       --mode string                      Service mode (replicated or global) (default "replicated")
-      --mount value                      Attach a mount to the service
+      --mount mount                      Attach a filesystem mount to the service
       --name string                      Service name
-      --network value                    Network attachments (default [])
+      --network list                     Network attachments (default [])
       --no-healthcheck                   Disable any container-specified HEALTHCHECK
-  -p, --publish value                    Publish a port as a node port (default [])
-      --replicas value                   Number of tasks (default none)
-      --reserve-cpu value                Reserve CPUs (default 0.000)
-      --reserve-memory value             Reserve Memory (default 0 B)
+  -p, --publish list                     Publish a port as a node port (default [])
+      --replicas uint                    Number of tasks (default none)
+      --reserve-cpu decimal              Reserve CPUs (default 0.000)
+      --reserve-memory bytes             Reserve Memory (default 0 B)
       --restart-condition string         Restart when condition is met (none, on-failure, or any)
-      --restart-delay value              Delay between restart attempts (default none)
-      --restart-max-attempts value       Maximum number of restarts before giving up (default none)
-      --restart-window value             Window used to evaluate the restart policy (default none)
-      --stop-grace-period value          Time to wait before force killing a container (default none)
-      --update-delay duration            Delay between updates
+      --restart-delay duration           Delay between restart attempts (default none)
+      --restart-max-attempts uint        Maximum number of restarts before giving up (default none)
+      --restart-window duration          Window used to evaluate the restart policy (default none)
+      --secret value                     Specify secrets to expose to the service (default [])
+      --stop-grace-period duration       Time to wait before force killing a container (default none)
+  -t, --tty                              Allocate a pseudo-TTY
+      --update-delay duration            Delay between updates (ns|us|ms|s|m|h) (default 0s)
       --update-failure-action string     Action on update failure (pause|continue) (default "pause")
-      --update-max-failure-ratio value   Failure rate to tolerate during an update
-      --update-monitor duration          Duration after each task update to monitor for failure (default 0s)
+      --update-max-failure-ratio float   Failure rate to tolerate during an update
+      --update-monitor duration          Duration after each task update to monitor for failure (ns|us|ms|s|m|h) (default 0s)
       --update-parallelism uint          Maximum number of tasks updated simultaneously (0 to update all at once) (default 1)
   -u, --user string                      Username or UID (format: <name|uid>[:<group|gid>])
-      --with-registry-auth               Send registry authentication details to Swarm agents
+      --with-registry-auth               Send registry authentication details to swarm agents
   -w, --workdir string                   Working directory inside the container
 ```
 
@@ -72,9 +78,13 @@ command on a manager node.
 $ docker service create --name redis redis:3.0.6
 dmu1ept4cxcfe8k8lhtux3ro3
 
+$ docker service create --mode global --name redis2 redis:3.0.6
+a8q9dasaafudfs8q8w32udass
+
 $ docker service ls
-ID            NAME   REPLICAS  IMAGE        COMMAND
-dmu1ept4cxcf  redis  1/1       redis:3.0.6
+ID            NAME    MODE        REPLICAS  IMAGE
+dmu1ept4cxcf  redis   replicated  1/1       redis:3.0.6
+a8q9dasaafud  redis2  global      1/1       redis:3.0.6
 ```
 
 ### Create a service with 5 replica tasks (--replicas)
@@ -97,8 +107,8 @@ number of `RUNNING` tasks is `3`:
 
 ```bash
 $ docker service ls
-ID            NAME    REPLICAS  IMAGE        COMMAND
-4cdgfyky7ozw  redis   3/5       redis:3.0.7
+ID            NAME   MODE        REPLICAS  IMAGE
+4cdgfyky7ozw  redis  replicated  3/5       redis:3.0.7
 ```
 
 Once all the tasks are created and `RUNNING`, the actual number of tasks is
@@ -106,9 +116,36 @@ equal to the desired number:
 
 ```bash
 $ docker service ls
-ID            NAME    REPLICAS  IMAGE        COMMAND
-4cdgfyky7ozw  redis   5/5       redis:3.0.7
+ID            NAME   MODE        REPLICAS  IMAGE
+4cdgfyky7ozw  redis  replicated  5/5       redis:3.0.7
 ```
+
+### Create a service with secrets
+Use the `--secret` flag to give a container access to a
+[secret](secret_create.md).
+
+Create a service specifying a secret:
+
+```bash
+$ docker service create --name redis --secret secret.json redis:3.0.6
+4cdgfyky7ozwh3htjfw0d12qv
+```
+
+Create a service specifying the secret, target, user/group ID and mode:
+
+```bash
+$ docker service create --name redis \
+    --secret source=ssh-key,target=ssh \
+    --secret source=app-key,target=app,uid=1000,gid=1001,mode=0400 \
+    redis:3.0.6
+4cdgfyky7ozwh3htjfw0d12qv
+```
+
+Secrets are located in `/run/secrets` in the container.  If no target is
+specified, the name of the secret will be used as the in memory file in the
+container.  If a target is specified, that will be the filename.  In the
+example above, two files will be created: `/run/secrets/ssh` and
+`/run/secrets/app` for each of the secret targets specified.
 
 ### Create a service with a rolling update policy
 
@@ -134,6 +171,12 @@ This sets environmental variables for all tasks in a service. For example:
 $ docker service create --name redis_2 --replicas 5 --env MYVAR=foo redis:3.0.6
 ```
 
+### Create a docker service with specific hostname (--hostname)
+
+This option sets the docker service containers hostname to a specific string. For example:
+```bash
+$ docker service create --name redis --hostname myredis redis:3.0.6
+```
 ### Set metadata on a service (-l, --label)
 
 A label is a `key=value` pair that applies metadata to a service. To label a

@@ -12,10 +12,12 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/server/httputils"
 	"github.com/docker/docker/api/types"
+	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/versions"
 	executorpkg "github.com/docker/docker/daemon/cluster/executor"
 	"github.com/docker/libnetwork"
+	"github.com/docker/swarmkit/agent/exec"
 	"github.com/docker/swarmkit/api"
 	"github.com/docker/swarmkit/log"
 	"golang.org/x/net/context"
@@ -28,9 +30,10 @@ import (
 type containerAdapter struct {
 	backend   executorpkg.Backend
 	container *containerConfig
+	secrets   exec.SecretGetter
 }
 
-func newContainerAdapter(b executorpkg.Backend, task *api.Task) (*containerAdapter, error) {
+func newContainerAdapter(b executorpkg.Backend, task *api.Task, secrets exec.SecretGetter) (*containerAdapter, error) {
 	ctnr, err := newContainerConfig(task)
 	if err != nil {
 		return nil, err
@@ -39,6 +42,7 @@ func newContainerAdapter(b executorpkg.Backend, task *api.Task) (*containerAdapt
 	return &containerAdapter{
 		container: ctnr,
 		backend:   b,
+		secrets:   secrets,
 	}, nil
 }
 
@@ -187,7 +191,7 @@ func (c *containerAdapter) waitForDetach(ctx context.Context) error {
 }
 
 func (c *containerAdapter) create(ctx context.Context) error {
-	var cr types.ContainerCreateResponse
+	var cr containertypes.ContainerCreateCreatedBody
 	var err error
 	version := httputils.VersionFromContext(ctx)
 	validateHostname := versions.GreaterThanOrEqualTo(version, "1.24")
@@ -212,6 +216,40 @@ func (c *containerAdapter) create(ctx context.Context) error {
 				return err
 			}
 		}
+	}
+
+	container := c.container.task.Spec.GetContainer()
+	if container == nil {
+		return fmt.Errorf("unable to get container from task spec")
+	}
+	secrets := make([]*containertypes.ContainerSecret, 0, len(container.Secrets))
+	for _, s := range container.Secrets {
+		sec := c.secrets.Get(s.SecretID)
+		if sec == nil {
+			logrus.Warnf("unable to get secret %s from provider", s.SecretID)
+			continue
+		}
+
+		name := sec.Spec.Annotations.Name
+		target := s.GetFile()
+		if target == nil {
+			logrus.Warnf("secret target was not a file: secret=%s", s.SecretID)
+			continue
+		}
+
+		secrets = append(secrets, &containertypes.ContainerSecret{
+			Name:   name,
+			Target: target.Name,
+			Data:   sec.Spec.Data,
+			UID:    target.UID,
+			GID:    target.GID,
+			Mode:   target.Mode,
+		})
+	}
+
+	// configure secrets
+	if err := c.backend.SetContainerSecrets(cr.ID, secrets); err != nil {
+		return err
 	}
 
 	if err := c.backend.UpdateContainerServiceConfig(cr.ID, c.container.serviceConfig()); err != nil {
@@ -328,6 +366,14 @@ func (c *containerAdapter) createVolumes(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (c *containerAdapter) activateServiceBinding() error {
+	return c.backend.ActivateContainerServiceBinding(c.container.name())
+}
+
+func (c *containerAdapter) deactivateServiceBinding() error {
+	return c.backend.DeactivateContainerServiceBinding(c.container.name())
 }
 
 // todo: typed/wrapped errors

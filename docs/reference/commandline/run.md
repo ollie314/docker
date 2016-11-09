@@ -1,7 +1,7 @@
 ---
 title: "run"
 description: "The run command description and usage"
-keywords: ["run, command, container"]
+keywords: "run, command, container"
 ---
 
 <!-- This file is maintained within the docker/docker Github
@@ -29,10 +29,18 @@ Options:
       --cap-drop value              Drop Linux capabilities (default [])
       --cgroup-parent string        Optional parent cgroup for the container
       --cidfile string              Write the container ID to the file
-      --cpu-percent int             CPU percent (Windows only)
+      --cpu-count int               The number of CPUs available for execution by the container.
+                                    Windows daemon only. On Windows Server containers, this is
+                                    approximated as a percentage of total CPU usage.
+      --cpu-percent int             Limit percentage of CPU available for execution
+                                    by the container. Windows daemon only.
+                                    The processor resource controls are mutually
+                                    exclusive, the order of precedence is CPUCount
+                                    first, then CPUShares, and CPUPercent last.
       --cpu-period int              Limit CPU CFS (Completely Fair Scheduler) period
       --cpu-quota int               Limit CPU CFS (Completely Fair Scheduler) quota
   -c, --cpu-shares int              CPU shares (relative weight)
+      --cpus NanoCPUs               Number of CPUs (default 0.000)
       --cpu-rt-period int           Limit the CPU real-time period in microseconds
       --cpu-rt-runtime int          Limit the CPU real-time runtime in microseconds
       --cpuset-cpus string          CPUs in which to allow execution (0-3, 0,1)
@@ -54,9 +62,9 @@ Options:
       --expose value                Expose a port or a range of ports (default [])
       --group-add value             Add additional groups to join (default [])
       --health-cmd string           Command to run to check health
-      --health-interval duration    Time between running the check
+      --health-interval duration    Time between running the check (ns|us|ms|s|m|h) (default 0s)
       --health-retries int          Consecutive failures needed to report unhealthy
-      --health-timeout duration     Maximum time to allow one check to run
+      --health-timeout duration     Maximum time to allow one check to run (ns|us|ms|s|m|h) (default 0s)
       --help                        Print usage
   -h, --hostname string             Container host name
   -i, --interactive                 Keep STDIN open even if not attached
@@ -84,6 +92,7 @@ Options:
       --memory-reservation string   Memory soft limit
       --memory-swap string          Swap limit equal to memory plus swap: '-1' to enable unlimited swap
       --memory-swappiness int       Tune container memory swappiness (0 to 100) (default -1)
+      --mount value                 Attach a filesystem mount to the container (default [])
       --name string                 Assign a name to the container
       --network-alias value         Add network-scoped alias for the container (default [])
       --network string              Connect a container to a network
@@ -249,11 +258,26 @@ specified volumes for the container.
 
 By bind-mounting the docker unix socket and statically linked docker
 binary (refer to [get the linux binary](
-../../installation/binaries.md#get-the-linux-binary)),
+https://docs.docker.com/engine/installation/binaries/#/get-the-linux-binary)),
 you give the container the full access to create and manipulate the host's
 Docker daemon.
 
 For in-depth information about volumes, refer to [manage data in containers](https://docs.docker.com/engine/tutorials/dockervolumes/)
+
+### Add bin-mounts or volumes using the --mounts flag
+
+The `--mounts` flag allows you to mount volumes, host-directories and `tmpfs`
+mounts in a container.
+
+The `--mount` flag supports most options that are supported by the `-v` or the
+`--volume` flag, but uses a different syntax. For in-depth information on the
+`--mount` flag, and a comparison between `--volume` and `--mount`, refer to
+the [service create command reference](service_create.md#add-bind-mounts-or-volumes).
+
+Examples:
+
+    $ docker run --read-only --mount type=volume,target=/icanwrite busybox touch /icanwrite/here
+    $ docker run -t -i --mount type=bind,src=/data,dst=/data busybox sh
 
 ### Publish or expose port (-p, --expose)
 

@@ -243,8 +243,44 @@ func (d *Driver) Remove(id string) error {
 	if err != nil {
 		return err
 	}
-	os.RemoveAll(filepath.Join(d.info.HomeDir, "sysfile-backups", rID)) // ok to fail
-	return hcsshim.DestroyLayer(d.info, rID)
+
+	// Get and terminate any template VMs that are currently using the layer
+	computeSystems, err := hcsshim.GetContainers(hcsshim.ComputeSystemQuery{})
+	if err != nil {
+		return err
+	}
+
+	for _, computeSystem := range computeSystems {
+		if strings.Contains(computeSystem.RuntimeImagePath, id) && computeSystem.IsRuntimeTemplate {
+			container, err := hcsshim.OpenContainer(computeSystem.ID)
+			if err != nil {
+				return err
+			}
+			defer container.Close()
+			err = container.Terminate()
+			if hcsshim.IsPending(err) {
+				err = container.Wait()
+			} else if hcsshim.IsAlreadyStopped(err) {
+				err = nil
+			}
+
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	layerPath := filepath.Join(d.info.HomeDir, rID)
+	tmpID := fmt.Sprintf("%s-removing", rID)
+	tmpLayerPath := filepath.Join(d.info.HomeDir, tmpID)
+	if err := os.Rename(layerPath, tmpLayerPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := hcsshim.DestroyLayer(d.info, tmpID); err != nil {
+		logrus.Errorf("Failed to DestroyLayer %s: %s", id, err)
+	}
+
+	return nil
 }
 
 // Get returns the rootfs path for the id. This will mount the dir at its given path.

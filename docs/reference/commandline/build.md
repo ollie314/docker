@@ -1,7 +1,7 @@
 ---
 title: "build"
 description: "The build command description and usage"
-keywords: ["build, docker, image"]
+keywords: "build, docker, image"
 ---
 
 <!-- This file is maintained within the docker/docker Github
@@ -54,6 +54,7 @@ Options:
                                 The format is `<number><unit>`. `number` must be greater than `0`.
                                 Unit is optional and can be `b` (bytes), `k` (kilobytes), `m` (megabytes),
                                 or `g` (gigabytes). If you omit the unit, the system uses bytes.
+  --squash                      Squash newly built layers into a single new layer (**Experimental Only**) 
   -t, --tag value               Name and optionally a tag in the 'name:tag' format (default [])
       --ulimit value            Ulimit options (default [])
 ```
@@ -173,9 +174,9 @@ $ docker build -t fail .
 
 Sending build context to Docker daemon 2.048 kB
 Sending build context to Docker daemon
-Step 1 : FROM busybox
+Step 1/3 : FROM busybox
  ---> 4986bf8c1536
-Step 2 : RUN exit 13
+Step 2/3 : RUN exit 13
  ---> Running in e26670ec7a0a
 INFO[0000] The command [/bin/sh -c exit 13] returned a non-zero code: 13
 $ echo $?
@@ -194,10 +195,10 @@ See also:
 $ docker build .
 
 Uploading context 10240 bytes
-Step 1 : FROM busybox
+Step 1/3 : FROM busybox
 Pulling repository busybox
  ---> e9aa60c60128MB/2.284 MB (100%) endpoint: https://cdn-registry-1.docker.io/v1/
-Step 2 : RUN ls -lh /
+Step 2/3 : RUN ls -lh /
  ---> Running in 9c9e81692ae9
 total 24
 drwxr-xr-x    2 root     root        4.0K Mar 12  2013 bin
@@ -211,7 +212,7 @@ dr-xr-xr-x   13 root     root           0 Nov 15 23:34 sys
 drwxr-xr-x    2 root     root        4.0K Mar 12  2013 tmp
 drwxr-xr-x    2 root     root        4.0K Nov 15 23:34 usr
  ---> b35f4035db3f
-Step 3 : CMD echo Hello world
+Step 3/3 : CMD echo Hello world
  ---> Running in 02071fceb21b
  ---> f52f38b7823e
 Successfully built f52f38b7823e
@@ -247,12 +248,12 @@ specify an arbitrary Git repository by using the `git://` or `git@` scheme.
 $ docker build -f ctx/Dockerfile http://server/ctx.tar.gz
 
 Downloading context: http://server/ctx.tar.gz [===================>]    240 B/240 B
-Step 1 : FROM busybox
+Step 1/3 : FROM busybox
  ---> 8c2e06607696
-Step 2 : ADD ctx/container.cfg /
+Step 2/3 : ADD ctx/container.cfg /
  ---> e7829950cee3
 Removing intermediate container b35224abf821
-Step 3 : CMD /bin/ls
+Step 3/3 : CMD /bin/ls
  ---> Running in fbc63d321d73
  ---> 3286931702ad
 Removing intermediate container fbc63d321d73
@@ -292,9 +293,9 @@ $ docker build .
 
 Uploading context 18.829 MB
 Uploading context
-Step 1 : FROM busybox
+Step 1/2 : FROM busybox
  ---> 769b9341d937
-Step 2 : CMD echo Hello world
+Step 2/2 : CMD echo Hello world
  ---> Using cache
  ---> 99cc1ad10469
 Successfully built 99cc1ad10469
@@ -302,9 +303,9 @@ $ echo ".git" > .dockerignore
 $ docker build .
 Uploading context  6.76 MB
 Uploading context
-Step 1 : FROM busybox
+Step 1/2 : FROM busybox
  ---> 769b9341d937
-Step 2 : CMD echo Hello world
+Step 2/2 : CMD echo Hello world
  ---> Using cache
  ---> 99cc1ad10469
 Successfully built 99cc1ad10469
@@ -432,3 +433,20 @@ Linux namespaces. On Microsoft Windows, you can specify these values:
 | `hyperv`  | Hyper-V hypervisor partition-based isolation.                                                                                                                 |
 
 Specifying the `--isolation` flag without a value is the same as setting `--isolation="default"`.
+
+
+### Squash an image's layers (--squash) **Experimental Only**
+
+Once the image is built, squash the new layers into a new image with a single
+new layer. Squashing does not destroy any existing image, rather it creates a new
+image with the content of the squshed layers. This effectively makes it look
+like all `Dockerfile` commands were created with a single layer. The build
+cache is preserved with this method.
+
+**Note**: using this option means the new image will not be able to take
+advantage of layer sharing with other images and may use significantly more
+space.
+
+**Note**: using this option you may see significantly more space used due to
+storing two copies of the image, one for the build cache with all the cache
+layers in tact, and one for the squashed version.

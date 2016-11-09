@@ -203,6 +203,88 @@ func (s *DockerSwarmSuite) TestSwarmNodeTaskListFilter(c *check.C) {
 	c.Assert(out, checker.Not(checker.Contains), name+".1")
 	c.Assert(out, checker.Not(checker.Contains), name+".2")
 	c.Assert(out, checker.Not(checker.Contains), name+".3")
+
+	out, err = d.Cmd("node", "ps", "--filter", "desired-state=running", "self")
+	c.Assert(err, checker.IsNil)
+	c.Assert(out, checker.Contains, name+".1")
+	c.Assert(out, checker.Contains, name+".2")
+	c.Assert(out, checker.Contains, name+".3")
+
+	out, err = d.Cmd("node", "ps", "--filter", "desired-state=shutdown", "self")
+	c.Assert(err, checker.IsNil)
+	c.Assert(out, checker.Not(checker.Contains), name+".1")
+	c.Assert(out, checker.Not(checker.Contains), name+".2")
+	c.Assert(out, checker.Not(checker.Contains), name+".3")
+}
+
+func (s *DockerSwarmSuite) TestSwarmServiceTaskListAll(c *check.C) {
+	d := s.AddDaemon(c, true, true)
+
+	name := "service-task-list-1"
+	out, err := d.Cmd("service", "create", "--name", name, "--replicas=3", "busybox", "top")
+	c.Assert(err, checker.IsNil)
+	c.Assert(strings.TrimSpace(out), checker.Not(checker.Equals), "")
+
+	// make sure task has been deployed.
+	waitAndAssert(c, defaultReconciliationTimeout, d.checkActiveContainerCount, checker.Equals, 3)
+
+	out, err = d.Cmd("service", "ps", name)
+	c.Assert(err, checker.IsNil)
+	c.Assert(out, checker.Contains, name+".1")
+	c.Assert(out, checker.Contains, name+".2")
+	c.Assert(out, checker.Contains, name+".3")
+
+	// Get the last container id so we can restart it to cause a task error in the history
+	containerID, err := d.Cmd("ps", "-q", "-l")
+	c.Assert(err, checker.IsNil)
+
+	_, err = d.Cmd("stop", strings.TrimSpace(containerID))
+	c.Assert(err, checker.IsNil)
+
+	waitAndAssert(c, defaultReconciliationTimeout, d.checkActiveContainerCount, checker.Equals, 3)
+
+	out, err = d.Cmd("service", "ps", name)
+	c.Assert(err, checker.IsNil)
+	c.Assert(out, checker.Count, name, 3)
+
+	out, err = d.Cmd("service", "ps", name, "-a")
+	c.Assert(err, checker.IsNil)
+	c.Assert(out, checker.Count, name, 4)
+}
+
+func (s *DockerSwarmSuite) TestSwarmNodeTaskListAll(c *check.C) {
+	d := s.AddDaemon(c, true, true)
+
+	name := "node-task-list"
+	out, err := d.Cmd("service", "create", "--name", name, "--replicas=3", "busybox", "top")
+	c.Assert(err, checker.IsNil)
+	c.Assert(strings.TrimSpace(out), checker.Not(checker.Equals), "")
+
+	// make sure task has been deployed.
+	waitAndAssert(c, defaultReconciliationTimeout, d.checkActiveContainerCount, checker.Equals, 3)
+
+	out, err = d.Cmd("service", "ps", name)
+	c.Assert(err, checker.IsNil)
+	c.Assert(out, checker.Contains, name+".1")
+	c.Assert(out, checker.Contains, name+".2")
+	c.Assert(out, checker.Contains, name+".3")
+
+	// Get the last container id so we can restart it to cause a task error in the history
+	containerID, err := d.Cmd("ps", "-q", "-l")
+	c.Assert(err, checker.IsNil)
+
+	_, err = d.Cmd("stop", strings.TrimSpace(containerID))
+	c.Assert(err, checker.IsNil)
+
+	waitAndAssert(c, defaultReconciliationTimeout, d.checkActiveContainerCount, checker.Equals, 3)
+
+	out, err = d.Cmd("node", "ps", "self")
+	c.Assert(err, checker.IsNil)
+	c.Assert(out, checker.Count, name, 3)
+
+	out, err = d.Cmd("node", "ps", "self", "-a")
+	c.Assert(err, checker.IsNil)
+	c.Assert(out, checker.Count, name, 4)
 }
 
 // Test case for #25375
@@ -273,6 +355,54 @@ func (s *DockerSwarmSuite) TestSwarmContainerAutoStart(c *check.C) {
 	out, err = d.Cmd("ps", "-q")
 	c.Assert(err, checker.IsNil)
 	c.Assert(strings.TrimSpace(out), checker.Not(checker.Equals), "")
+}
+
+func (s *DockerSwarmSuite) TestSwarmContainerEndpointOptions(c *check.C) {
+	d := s.AddDaemon(c, true, true)
+
+	out, err := d.Cmd("network", "create", "--attachable", "-d", "overlay", "foo")
+	c.Assert(err, checker.IsNil)
+	c.Assert(strings.TrimSpace(out), checker.Not(checker.Equals), "")
+
+	_, err = d.Cmd("run", "-d", "--net=foo", "--name=first", "--net-alias=first-alias", "busybox", "top")
+	c.Assert(err, checker.IsNil)
+
+	_, err = d.Cmd("run", "-d", "--net=foo", "--name=second", "busybox", "top")
+	c.Assert(err, checker.IsNil)
+
+	// ping first container and its alias
+	_, err = d.Cmd("exec", "second", "ping", "-c", "1", "first")
+	c.Assert(err, check.IsNil)
+	_, err = d.Cmd("exec", "second", "ping", "-c", "1", "first-alias")
+	c.Assert(err, check.IsNil)
+}
+
+func (s *DockerSwarmSuite) TestSwarmContainerAttachByNetworkId(c *check.C) {
+	d := s.AddDaemon(c, true, true)
+
+	out, err := d.Cmd("network", "create", "--attachable", "-d", "overlay", "testnet")
+	c.Assert(err, checker.IsNil)
+	c.Assert(strings.TrimSpace(out), checker.Not(checker.Equals), "")
+	networkID := strings.TrimSpace(out)
+
+	out, err = d.Cmd("run", "-d", "--net", networkID, "busybox", "top")
+	c.Assert(err, checker.IsNil)
+	cID := strings.TrimSpace(out)
+	d.waitRun(cID)
+
+	_, err = d.Cmd("rm", "-f", cID)
+	c.Assert(err, checker.IsNil)
+
+	out, err = d.Cmd("network", "rm", "testnet")
+	c.Assert(err, checker.IsNil)
+
+	checkNetwork := func(*check.C) (interface{}, check.CommentInterface) {
+		out, err := d.Cmd("network", "ls")
+		c.Assert(err, checker.IsNil)
+		return out, nil
+	}
+
+	waitAndAssert(c, 3*time.Second, checkNetwork, checker.Not(checker.Contains), "testnet")
 }
 
 func (s *DockerSwarmSuite) TestSwarmRemoveInternalNetwork(c *check.C) {
@@ -587,4 +717,121 @@ func (s *DockerSwarmSuite) TestSwarmServiceEnvFile(c *check.C) {
 	out, err = d.Cmd("inspect", "--format", "{{ .Spec.TaskTemplate.ContainerSpec.Env }}", name)
 	c.Assert(err, checker.IsNil)
 	c.Assert(out, checker.Contains, "[VAR1=C VAR2]")
+}
+
+func (s *DockerSwarmSuite) TestSwarmServiceTTY(c *check.C) {
+	d := s.AddDaemon(c, true, true)
+
+	name := "top"
+
+	ttyCheck := "if [ -t 0 ]; then echo TTY > /status && top; else echo none > /status && top; fi"
+
+	// Without --tty
+	expectedOutput := "none"
+	out, err := d.Cmd("service", "create", "--name", name, "busybox", "sh", "-c", ttyCheck)
+	c.Assert(err, checker.IsNil)
+
+	// Make sure task has been deployed.
+	waitAndAssert(c, defaultReconciliationTimeout, d.checkActiveContainerCount, checker.Equals, 1)
+
+	// We need to get the container id.
+	out, err = d.Cmd("ps", "-a", "-q", "--no-trunc")
+	c.Assert(err, checker.IsNil)
+	id := strings.TrimSpace(out)
+
+	out, err = d.Cmd("exec", id, "cat", "/status")
+	c.Assert(err, checker.IsNil)
+	c.Assert(out, checker.Contains, expectedOutput, check.Commentf("Expected '%s', but got %q", expectedOutput, out))
+
+	// Remove service
+	out, err = d.Cmd("service", "rm", name)
+	c.Assert(err, checker.IsNil)
+	// Make sure container has been destroyed.
+	waitAndAssert(c, defaultReconciliationTimeout, d.checkActiveContainerCount, checker.Equals, 0)
+
+	// With --tty
+	expectedOutput = "TTY"
+	out, err = d.Cmd("service", "create", "--name", name, "--tty", "busybox", "sh", "-c", ttyCheck)
+	c.Assert(err, checker.IsNil)
+
+	// Make sure task has been deployed.
+	waitAndAssert(c, defaultReconciliationTimeout, d.checkActiveContainerCount, checker.Equals, 1)
+
+	// We need to get the container id.
+	out, err = d.Cmd("ps", "-a", "-q", "--no-trunc")
+	c.Assert(err, checker.IsNil)
+	id = strings.TrimSpace(out)
+
+	out, err = d.Cmd("exec", id, "cat", "/status")
+	c.Assert(err, checker.IsNil)
+	c.Assert(out, checker.Contains, expectedOutput, check.Commentf("Expected '%s', but got %q", expectedOutput, out))
+}
+
+func (s *DockerSwarmSuite) TestSwarmServiceTTYUpdate(c *check.C) {
+	d := s.AddDaemon(c, true, true)
+
+	// Create a service
+	name := "top"
+	_, err := d.Cmd("service", "create", "--name", name, "busybox", "top")
+	c.Assert(err, checker.IsNil)
+
+	// Make sure task has been deployed.
+	waitAndAssert(c, defaultReconciliationTimeout, d.checkActiveContainerCount, checker.Equals, 1)
+
+	out, err := d.Cmd("service", "inspect", "--format", "{{ .Spec.TaskTemplate.ContainerSpec.TTY }}", name)
+	c.Assert(err, checker.IsNil)
+	c.Assert(strings.TrimSpace(out), checker.Equals, "false")
+
+	_, err = d.Cmd("service", "update", "--tty", name)
+	c.Assert(err, checker.IsNil)
+
+	out, err = d.Cmd("service", "inspect", "--format", "{{ .Spec.TaskTemplate.ContainerSpec.TTY }}", name)
+	c.Assert(err, checker.IsNil)
+	c.Assert(strings.TrimSpace(out), checker.Equals, "true")
+}
+
+func (s *DockerSwarmSuite) TestDNSConfig(c *check.C) {
+	d := s.AddDaemon(c, true, true)
+
+	// Create a service
+	name := "top"
+	_, err := d.Cmd("service", "create", "--name", name, "--dns=1.2.3.4", "--dns-search=example.com", "--dns-options=timeout:3", "busybox", "top")
+	c.Assert(err, checker.IsNil)
+
+	// Make sure task has been deployed.
+	waitAndAssert(c, defaultReconciliationTimeout, d.checkActiveContainerCount, checker.Equals, 1)
+
+	// We need to get the container id.
+	out, err := d.Cmd("ps", "-a", "-q", "--no-trunc")
+	c.Assert(err, checker.IsNil)
+	id := strings.TrimSpace(out)
+
+	// Compare against expected output.
+	expectedOutput1 := "nameserver 1.2.3.4"
+	expectedOutput2 := "search example.com"
+	expectedOutput3 := "options timeout:3"
+	out, err = d.Cmd("exec", id, "cat", "/etc/resolv.conf")
+	c.Assert(err, checker.IsNil)
+	c.Assert(out, checker.Contains, expectedOutput1, check.Commentf("Expected '%s', but got %q", expectedOutput1, out))
+	c.Assert(out, checker.Contains, expectedOutput2, check.Commentf("Expected '%s', but got %q", expectedOutput2, out))
+	c.Assert(out, checker.Contains, expectedOutput3, check.Commentf("Expected '%s', but got %q", expectedOutput3, out))
+}
+
+func (s *DockerSwarmSuite) TestDNSConfigUpdate(c *check.C) {
+	d := s.AddDaemon(c, true, true)
+
+	// Create a service
+	name := "top"
+	_, err := d.Cmd("service", "create", "--name", name, "busybox", "top")
+	c.Assert(err, checker.IsNil)
+
+	// Make sure task has been deployed.
+	waitAndAssert(c, defaultReconciliationTimeout, d.checkActiveContainerCount, checker.Equals, 1)
+
+	_, err = d.Cmd("service", "update", "--dns-add=1.2.3.4", "--dns-search-add=example.com", "--dns-options-add=timeout:3", name)
+	c.Assert(err, checker.IsNil)
+
+	out, err := d.Cmd("service", "inspect", "--format", "{{ .Spec.TaskTemplate.ContainerSpec.DNSConfig }}", name)
+	c.Assert(err, checker.IsNil)
+	c.Assert(strings.TrimSpace(out), checker.Equals, "{[1.2.3.4] [example.com] [timeout:3]}")
 }

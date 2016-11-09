@@ -27,6 +27,7 @@ func (s *DockerSuite) TestPluginBasicOps(c *check.C) {
 	c.Assert(out, checker.Contains, "true")
 
 	id, _, err := dockerCmdWithError("plugin", "inspect", "-f", "{{.Id}}", pNameWithTag)
+	id = strings.TrimSpace(id)
 	c.Assert(err, checker.IsNil)
 
 	out, _, err = dockerCmdWithError("plugin", "remove", pNameWithTag)
@@ -106,6 +107,38 @@ func (s *DockerSuite) TestPluginInstallDisable(c *check.C) {
 	out, _, err = dockerCmdWithError("plugin", "remove", pName)
 	c.Assert(err, checker.IsNil)
 	c.Assert(strings.TrimSpace(out), checker.Contains, pName)
+}
+
+func (s *DockerSuite) TestPluginInstallDisableVolumeLs(c *check.C) {
+	testRequires(c, DaemonIsLinux, ExperimentalDaemon, Network)
+	out, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", "--disable", pName)
+	c.Assert(err, checker.IsNil)
+	c.Assert(strings.TrimSpace(out), checker.Contains, pName)
+
+	dockerCmd(c, "volume", "ls")
+}
+
+func (s *DockerSuite) TestPluginSet(c *check.C) {
+	testRequires(c, DaemonIsLinux, ExperimentalDaemon, Network)
+	out, _ := dockerCmd(c, "plugin", "install", "--grant-all-permissions", "--disable", pName)
+	c.Assert(strings.TrimSpace(out), checker.Contains, pName)
+
+	env, _ := dockerCmd(c, "plugin", "inspect", "-f", "{{.Config.Env}}", pName)
+	c.Assert(strings.TrimSpace(env), checker.Equals, "[DEBUG=0]")
+
+	dockerCmd(c, "plugin", "set", pName, "DEBUG=1")
+
+	env, _ = dockerCmd(c, "plugin", "inspect", "-f", "{{.Config.Env}}", pName)
+	c.Assert(strings.TrimSpace(env), checker.Equals, "[DEBUG=1]")
+}
+
+func (s *DockerSuite) TestPluginInstallArgs(c *check.C) {
+	testRequires(c, DaemonIsLinux, ExperimentalDaemon, Network)
+	out, _ := dockerCmd(c, "plugin", "install", "--grant-all-permissions", "--disable", pName, "DEBUG=1")
+	c.Assert(strings.TrimSpace(out), checker.Contains, pName)
+
+	env, _ := dockerCmd(c, "plugin", "inspect", "-f", "{{.Config.Env}}", pName)
+	c.Assert(strings.TrimSpace(env), checker.Equals, "[DEBUG=1]")
 }
 
 func (s *DockerSuite) TestPluginInstallImage(c *check.C) {

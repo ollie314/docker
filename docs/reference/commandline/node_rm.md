@@ -1,7 +1,7 @@
 ---
 title: "node rm"
 description: "The node rm command description and usage"
-keywords: ["node, remove"]
+keywords: "node, remove"
 ---
 
 <!-- This file is maintained within the docker/docker Github
@@ -16,7 +16,7 @@ keywords: ["node, remove"]
 # node rm
 
 ```markdown
-Usage:  docker node rm [OPTIONS] NODE [NODE...]
+Usage:	docker node rm [OPTIONS] NODE [NODE...]
 
 Remove one or more nodes from the swarm
 
@@ -24,8 +24,8 @@ Aliases:
   rm, remove
 
 Options:
-      --force  Force remove an active node
-      --help   Print usage
+  -f, --force   Force remove a node from the swarm
+      --help    Print usage
 ```
 
 When run from a manager node, removes the specified nodes from a swarm.

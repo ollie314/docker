@@ -1,7 +1,7 @@
 ---
 title: "Dockerfile reference"
 description: "Dockerfiles use a simple DSL which allows you to automate the steps you would normally manually take to create an image."
-keywords: ["builder, docker, Dockerfile, automation,  image creation"]
+keywords: "builder, docker, Dockerfile, automation, image creation"
 ---
 
 <!-- This file is maintained within the docker/docker Github
@@ -97,15 +97,15 @@ the `Using cache` message in the console output.
 
     $ docker build -t svendowideit/ambassador .
     Sending build context to Docker daemon 15.36 kB
-    Step 1 : FROM alpine:3.2
+    Step 1/4 : FROM alpine:3.2
      ---> 31f630c65071
-    Step 2 : MAINTAINER SvenDowideit@home.org.au
+    Step 2/4 : MAINTAINER SvenDowideit@home.org.au
      ---> Using cache
      ---> 2a1c91448f5f
-    Step 3 : RUN apk update &&      apk add socat &&        rm -r /var/cache/
+    Step 3/4 : RUN apk update &&      apk add socat &&        rm -r /var/cache/
      ---> Using cache
      ---> 21ed6e7fbb73
-    Step 4 : CMD env | grep _TCP= | (sed 's/.*_PORT_\([0-9]*\)_TCP=tcp:\/\/\(.*\):\(.*\)/socat -t 100000000 TCP4-LISTEN:\1,fork,reuseaddr TCP4:\2:\3 \&/' && echo wait) | sh
+    Step 4/4 : CMD env | grep _TCP= | (sed 's/.*_PORT_\([0-9]*\)_TCP=tcp:\/\/\(.*\):\(.*\)/socat -t 100000000 TCP4-LISTEN:\1,fork,reuseaddr TCP4:\2:\3 \&/' && echo wait) | sh
      ---> Using cache
      ---> 7ea8aef582cc
     Successfully built 7ea8aef582cc
@@ -1286,12 +1286,12 @@ to create the directory in the Dockerfile. For example:
     ARG <name>[=<default value>]
 
 The `ARG` instruction defines a variable that users can pass at build-time to
-the builder with the `docker build` command using the
-`--build-arg <varname>=<value>` flag. If a user specifies a build argument
-that was not defined in the Dockerfile, the build outputs an error.
+the builder with the `docker build` command using the `--build-arg
+<varname>=<value>` flag. If a user specifies a build argument that was not
+defined in the Dockerfile, the build outputs a warning.
 
 ```
-One or more build-args were not consumed, failing build.
+[Warning] One or more build-args [foo] were not consumed.
 ```
 
 The Dockerfile author can define a single variable by specifying `ARG` once or many

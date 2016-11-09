@@ -104,6 +104,9 @@ type Daemon struct {
 	defaultIsolation          containertypes.Isolation // Default isolation mode on Windows
 	clusterProvider           cluster.Provider
 	cluster                   Cluster
+
+	seccompProfile     []byte
+	seccompProfilePath string
 }
 
 // HasExperimental returns whether the experimental features of the daemon are enabled or not
@@ -190,7 +193,7 @@ func (daemon *Daemon) restore() error {
 		go func(c *container.Container) {
 			defer wg.Done()
 			if err := backportMountSpec(c); err != nil {
-				logrus.Errorf("Failed to migrate old mounts to use new spec format")
+				logrus.Error("Failed to migrate old mounts to use new spec format")
 			}
 
 			if c.IsRunning() || c.IsPaused() {
@@ -455,7 +458,7 @@ func NewDaemon(config *Config, registryService registry.Service, containerdRemot
 
 	// Ensure that we have a correct root key limit for launching containers.
 	if err := ModifyRootKeyLimit(); err != nil {
-		logrus.Warnf("unable to modify root key limit, number of containers could be limitied by this quota: %v", err)
+		logrus.Warnf("unable to modify root key limit, number of containers could be limited by this quota: %v", err)
 	}
 
 	// Ensure we have compatible and valid configuration options
@@ -475,10 +478,6 @@ func NewDaemon(config *Config, registryService registry.Service, containerdRemot
 	if err := checkSystem(); err != nil {
 		return nil, err
 	}
-
-	// set up SIGUSR1 handler on Unix-like systems, or a Win32 global event
-	// on Windows to dump Go routine stacks
-	setupDumpStackTrap(config.Root)
 
 	uidMaps, gidMaps, err := setupRemappedRoot(config)
 	if err != nil {
@@ -529,6 +528,10 @@ func NewDaemon(config *Config, registryService registry.Service, containerdRemot
 			}
 		}
 	}()
+
+	if err := d.setupSeccompProfile(); err != nil {
+		return nil, err
+	}
 
 	// Set the default isolation mode (only applicable on Windows)
 	if err := d.setDefaultIsolation(); err != nil {
@@ -699,6 +702,10 @@ func NewDaemon(config *Config, registryService registry.Service, containerdRemot
 	engineCpus.Set(float64(info.NCPU))
 	engineMemory.Set(float64(info.MemTotal))
 
+	// set up SIGUSR1 handler on Unix-like systems, or a Win32 global event
+	// on Windows to dump Go routine stacks
+	d.setupDumpStackTrap(config.Root)
+
 	return d, nil
 }
 
@@ -847,6 +854,7 @@ func (daemon *Daemon) Unmount(container *container.Container) error {
 		logrus.Errorf("Error unmounting container %s: %s", container.ID, err)
 		return err
 	}
+
 	return nil
 }
 

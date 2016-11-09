@@ -110,6 +110,9 @@ func (clnt *client) Create(containerID string, checkpoint string, checkpointDir 
 
 	if spec.Windows.Resources != nil {
 		if spec.Windows.Resources.CPU != nil {
+			if spec.Windows.Resources.CPU.Count != nil {
+				configuration.ProcessorCount = uint32(*spec.Windows.Resources.CPU.Count)
+			}
 			if spec.Windows.Resources.CPU.Shares != nil {
 				configuration.ProcessorWeight = uint64(*spec.Windows.Resources.CPU.Shares)
 			}
@@ -298,6 +301,7 @@ func (clnt *client) AddProcess(ctx context.Context, containerID, processFriendly
 	// Configure the environment for the process
 	createProcessParms.Environment = setupEnvironmentVariables(procToAdd.Env)
 	createProcessParms.CommandLine = strings.Join(procToAdd.Args, " ")
+	createProcessParms.User = procToAdd.User.Username
 
 	logrus.Debugf("libcontainerd: commandLine: %s", createProcessParms.CommandLine)
 

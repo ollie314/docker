@@ -1,7 +1,7 @@
 ---
 title: "plugin enable"
 description: "the plugin enable command description and usage"
-keywords: ["plugin, enable"]
+keywords: "plugin, enable"
 advisory: "experimental"
 ---
 
@@ -59,3 +59,4 @@ tiborvass/no-remove   latest              A test plugin for Docker   true
 * [plugin inspect](plugin_inspect.md)
 * [plugin install](plugin_install.md)
 * [plugin rm](plugin_rm.md)
+* [plugin set](plugin_set.md)

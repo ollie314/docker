@@ -25,8 +25,8 @@ func NewInspectCommand(dockerCli *command.DockerCli) *cobra.Command {
 	var opts inspectOptions
 
 	cmd := &cobra.Command{
-		Use:   "inspect [OPTIONS] CONTAINER|IMAGE|TASK [CONTAINER|IMAGE|TASK...]",
-		Short: "Return low-level information on a container, image or task",
+		Use:   "inspect [OPTIONS] NAME|ID [NAME|ID...]",
+		Short: "Return low-level information on Docker objects",
 		Args:  cli.RequiresMinArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.ids = args
