@@ -142,8 +142,8 @@ func TestUpdateDNSConfig(t *testing.T) {
 	// Invalid dns search domain
 	assert.Error(t, flags.Set("dns-search-add", "example$com"), "example$com is not a valid domain")
 
-	flags.Set("dns-options-add", "ndots:9")
-	flags.Set("dns-options-rm", "timeout:3")
+	flags.Set("dns-option-add", "ndots:9")
+	flags.Set("dns-option-rm", "timeout:3")
 
 	config := &swarm.DNSConfig{
 		Nameservers: []string{"3.3.3.3", "5.5.5.5"},
@@ -238,7 +238,7 @@ func TestUpdatePortsDuplicateEntries(t *testing.T) {
 func TestUpdatePortsDuplicateKeys(t *testing.T) {
 	// Test case for #25375
 	flags := newUpdateCommand(nil).Flags()
-	flags.Set("publish-add", "80:20")
+	flags.Set("publish-add", "80:80")
 
 	portConfigs := []swarm.PortConfig{
 		{TargetPort: 80, PublishedPort: 80},
@@ -247,21 +247,7 @@ func TestUpdatePortsDuplicateKeys(t *testing.T) {
 	err := updatePorts(flags, &portConfigs)
 	assert.Equal(t, err, nil)
 	assert.Equal(t, len(portConfigs), 1)
-	assert.Equal(t, portConfigs[0].TargetPort, uint32(20))
-}
-
-func TestUpdatePortsConflictingFlags(t *testing.T) {
-	// Test case for #25375
-	flags := newUpdateCommand(nil).Flags()
-	flags.Set("publish-add", "80:80")
-	flags.Set("publish-add", "80:20")
-
-	portConfigs := []swarm.PortConfig{
-		{TargetPort: 80, PublishedPort: 80},
-	}
-
-	err := updatePorts(flags, &portConfigs)
-	assert.Error(t, err, "conflicting port mapping")
+	assert.Equal(t, portConfigs[0].TargetPort, uint32(80))
 }
 
 func TestUpdateHealthcheckTable(t *testing.T) {
@@ -338,4 +324,24 @@ func TestUpdateHealthcheckTable(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestUpdateHosts(t *testing.T) {
+	flags := newUpdateCommand(nil).Flags()
+	flags.Set("host-add", "example.net:2.2.2.2")
+	flags.Set("host-add", "ipv6.net:2001:db8:abc8::1")
+	// remove with ipv6 should work
+	flags.Set("host-rm", "example.net:2001:db8:abc8::1")
+	// just hostname should work as well
+	flags.Set("host-rm", "example.net")
+	// bad format error
+	assert.Error(t, flags.Set("host-add", "$example.com$"), "bad format for add-host:")
+
+	hosts := []string{"1.2.3.4 example.com", "4.3.2.1 example.org", "2001:db8:abc8::1 example.net"}
+
+	updateHosts(flags, &hosts)
+	assert.Equal(t, len(hosts), 3)
+	assert.Equal(t, hosts[0], "1.2.3.4 example.com")
+	assert.Equal(t, hosts[1], "2001:db8:abc8::1 ipv6.net")
+	assert.Equal(t, hosts[2], "4.3.2.1 example.org")
 }

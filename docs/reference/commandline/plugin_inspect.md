@@ -2,7 +2,6 @@
 title: "plugin inspect"
 description: "The plugin inspect command description and usage"
 keywords: "plugin, inspect"
-advisory: "experimental"
 ---
 
 <!-- This file is maintained within the docker/docker Github
@@ -14,7 +13,7 @@ advisory: "experimental"
      will be rejected.
 -->
 
-# plugin inspect (experimental)
+# plugin inspect
 
 ```markdown
 Usage:  docker plugin inspect [OPTIONS] PLUGIN [PLUGIN...]
@@ -154,6 +153,7 @@ $ docker plugin inspect -f '{{.Id}}' tiborvass/no-remove:latest
 
 ## Related information
 
+* [plugin create](plugin_create.md)
 * [plugin ls](plugin_ls.md)
 * [plugin enable](plugin_enable.md)
 * [plugin disable](plugin_disable.md)

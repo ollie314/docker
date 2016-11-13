@@ -10,6 +10,7 @@ import (
 	"github.com/docker/docker/api/errors"
 	"github.com/docker/docker/api/server/httputils"
 	basictypes "github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/api/types/filters"
 	types "github.com/docker/docker/api/types/swarm"
 	"golang.org/x/net/context"
@@ -87,11 +88,45 @@ func (sr *swarmRouter) updateCluster(ctx context.Context, w http.ResponseWriter,
 		flags.RotateManagerToken = rot
 	}
 
+	if value := r.URL.Query().Get("rotateManagerUnlockKey"); value != "" {
+		rot, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("invalid value for rotateManagerUnlockKey: %s", value)
+		}
+
+		flags.RotateManagerUnlockKey = rot
+	}
+
 	if err := sr.backend.Update(version, swarm, flags); err != nil {
 		logrus.Errorf("Error configuring swarm: %v", err)
 		return err
 	}
 	return nil
+}
+
+func (sr *swarmRouter) unlockCluster(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
+	var req types.UnlockRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return err
+	}
+
+	if err := sr.backend.UnlockSwarm(req); err != nil {
+		logrus.Errorf("Error unlocking swarm: %v", err)
+		return err
+	}
+	return nil
+}
+
+func (sr *swarmRouter) getUnlockKey(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
+	unlockKey, err := sr.backend.GetUnlockKey()
+	if err != nil {
+		logrus.WithError(err).Errorf("Error retrieving swarm unlock key")
+		return err
+	}
+
+	return httputils.WriteJSON(w, http.StatusOK, &basictypes.SwarmUnlockKeyResponse{
+		UnlockKey: unlockKey,
+	})
 }
 
 func (sr *swarmRouter) getServices(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
@@ -171,6 +206,59 @@ func (sr *swarmRouter) removeService(ctx context.Context, w http.ResponseWriter,
 		logrus.Errorf("Error removing service %s: %v", vars["id"], err)
 		return err
 	}
+	return nil
+}
+
+func (sr *swarmRouter) getServiceLogs(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
+	if err := httputils.ParseForm(r); err != nil {
+		return err
+	}
+
+	// Args are validated before the stream starts because when it starts we're
+	// sending HTTP 200 by writing an empty chunk of data to tell the client that
+	// daemon is going to stream. By sending this initial HTTP 200 we can't report
+	// any error after the stream starts (i.e. container not found, wrong parameters)
+	// with the appropriate status code.
+	stdout, stderr := httputils.BoolValue(r, "stdout"), httputils.BoolValue(r, "stderr")
+	if !(stdout || stderr) {
+		return fmt.Errorf("Bad parameters: you must choose at least one stream")
+	}
+
+	serviceName := vars["id"]
+	logsConfig := &backend.ContainerLogsConfig{
+		ContainerLogsOptions: basictypes.ContainerLogsOptions{
+			Follow:     httputils.BoolValue(r, "follow"),
+			Timestamps: httputils.BoolValue(r, "timestamps"),
+			Since:      r.Form.Get("since"),
+			Tail:       r.Form.Get("tail"),
+			ShowStdout: stdout,
+			ShowStderr: stderr,
+			Details:    httputils.BoolValue(r, "details"),
+		},
+		OutStream: w,
+	}
+
+	if !logsConfig.Follow {
+		return fmt.Errorf("Bad parameters: Only follow mode is currently supported")
+	}
+
+	if logsConfig.Details {
+		return fmt.Errorf("Bad parameters: details is not currently supported")
+	}
+
+	chStarted := make(chan struct{})
+	if err := sr.backend.ServiceLogs(ctx, serviceName, logsConfig, chStarted); err != nil {
+		select {
+		case <-chStarted:
+			// The client may be expecting all of the data we're sending to
+			// be multiplexed, so send it through OutStream, which will
+			// have been set up to handle that if needed.
+			fmt.Fprintf(logsConfig.OutStream, "Error grabbing service logs: %v\n", err)
+		default:
+			return err
+		}
+	}
+
 	return nil
 }
 

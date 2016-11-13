@@ -132,22 +132,8 @@ func (daemon *Daemon) SystemInfo() (*types.Info, error) {
 		Isolation:          daemon.defaultIsolation,
 	}
 
-	// TODO Windows. Refactor this more once sysinfo is refactored into
-	// platform specific code. On Windows, sysinfo.cgroupMemInfo and
-	// sysinfo.cgroupCpuInfo will be nil otherwise and cause a SIGSEGV if
-	// an attempt is made to access through them.
-	if runtime.GOOS != "windows" {
-		v.MemoryLimit = sysInfo.MemoryLimit
-		v.SwapLimit = sysInfo.SwapLimit
-		v.KernelMemory = sysInfo.KernelMemory
-		v.OomKillDisable = sysInfo.OomKillDisable
-		v.CPUCfsPeriod = sysInfo.CPUCfsPeriod
-		v.CPUCfsQuota = sysInfo.CPUCfsQuota
-		v.CPUShares = sysInfo.CPUShares
-		v.CPUSet = sysInfo.Cpuset
-		v.Runtimes = daemon.configStore.GetAllRuntimes()
-		v.DefaultRuntime = daemon.configStore.GetDefaultRuntimeName()
-	}
+	// Retrieve platform specific info
+	daemon.FillPlatformInfo(v, sysInfo)
 
 	hostname := ""
 	if hn, err := os.Hostname(); err != nil {

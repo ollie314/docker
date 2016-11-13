@@ -151,6 +151,13 @@ type Version struct {
 	BuildTime     string `json:",omitempty"`
 }
 
+// Commit records a external tool actual commit id version along the
+// one expect by dockerd as set at build time
+type Commit struct {
+	ID       string
+	Expected string
+}
+
 // InfoBase contains the base response of Remote API:
 // GET "/info"
 type InfoBase struct {
@@ -208,6 +215,10 @@ type InfoBase struct {
 	// running containers are detected
 	LiveRestoreEnabled bool
 	Isolation          container.Isolation
+	InitBinary         string
+	ContainerdCommit   Commit
+	RuncCommit         Commit
+	InitCommit         Commit
 }
 
 // SecurityOpt holds key/value pair about a security option
@@ -396,6 +407,7 @@ type NetworkResource struct {
 	Containers map[string]EndpointResource // Containers contains endpoints belonging to the network
 	Options    map[string]string           // Options holds the network specific options to use for when creating the network
 	Labels     map[string]string           // Labels holds metadata specific to the network being created
+	Peers      []network.PeerInfo          `json:",omitempty"` // List of peer nodes for an overlay network
 }
 
 // EndpointResource contains network resources allocated and used for a container in a network

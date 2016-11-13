@@ -202,9 +202,8 @@ type ImageImportOptions struct {
 
 // ImageListOptions holds parameters to filter the list of images with.
 type ImageListOptions struct {
-	MatchName string
-	All       bool
-	Filters   filters.Args
+	All     bool
+	Filters filters.Args
 }
 
 // ImageLoadResponse returns information to the client about a load process.
@@ -348,4 +347,16 @@ type SecretRequestOption struct {
 	UID    string
 	GID    string
 	Mode   os.FileMode
+}
+
+// SwarmUnlockKeyResponse contains the response for Remote API:
+// GET /swarm/unlockkey
+type SwarmUnlockKeyResponse struct {
+	// UnlockKey is the unlock key in ASCII-armored format.
+	UnlockKey string
+}
+
+// PluginCreateOptions hold all options to plugin create.
+type PluginCreateOptions struct {
+	RepoName string
 }

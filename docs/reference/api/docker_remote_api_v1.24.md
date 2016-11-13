@@ -3952,9 +3952,10 @@ List nodes
 - **filters** – a JSON encoded value of the filters (a `map[string][]string`) to process on the
   nodes list. Available filters:
   - `id=<node id>`
+  - `label=<engine label>`
+  - `membership=`(`accepted`|`pending`)`
   - `name=<node name>`
-  - `membership=`(`pending`|`accepted`|`rejected`)`
-  - `role=`(`worker`|`manager`)`
+  - `role=`(`manager`|`worker`)`
 
 **Status codes**:
 
@@ -4112,9 +4113,9 @@ an empty value or the default cluster-wide value.
 
 JSON Parameters:
 
-- **Annotations** – Optional medata to associate with the service.
-    - **Name** – User-defined name for the service.
-    - **Labels** – A map of labels to associate with the service (e.g.,
+- **Annotations** – Optional medata to associate with the node.
+    - **Name** – User-defined name for the node.
+    - **Labels** – A map of labels to associate with the node (e.g.,
       `{"key":"value", "key2":"value2"}`).
 - **Role** - Role of the node (worker/manager).
 - **Availability** - Availability of the node (active/pause/drain).
@@ -4501,8 +4502,9 @@ List services
 
 - **filters** – a JSON encoded value of the filters (a `map[string][]string`) to process on the
   services list. Available filters:
-  - `id=<node id>`
-  - `name=<node name>`
+  - `id=<service id>`
+  - `label=<service label>`
+  - `name=<service name>`
 
 **Status codes**:
 

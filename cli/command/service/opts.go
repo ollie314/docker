@@ -287,26 +287,28 @@ func convertNetworks(networks []string) []swarm.NetworkAttachmentConfig {
 }
 
 type endpointOptions struct {
-	mode  string
-	ports opts.ListOpts
+	mode          string
+	publishPorts  opts.ListOpts
+	expandedPorts opts.PortOpt
 }
 
 func (e *endpointOptions) ToEndpointSpec() *swarm.EndpointSpec {
 	portConfigs := []swarm.PortConfig{}
 	// We can ignore errors because the format was already validated by ValidatePort
-	ports, portBindings, _ := nat.ParsePortSpecs(e.ports.GetAll())
+	ports, portBindings, _ := nat.ParsePortSpecs(e.publishPorts.GetAll())
 
 	for port := range ports {
-		portConfigs = append(portConfigs, convertPortToPortConfig(port, portBindings)...)
+		portConfigs = append(portConfigs, ConvertPortToPortConfig(port, portBindings)...)
 	}
 
 	return &swarm.EndpointSpec{
 		Mode:  swarm.ResolutionMode(strings.ToLower(e.mode)),
-		Ports: portConfigs,
+		Ports: append(portConfigs, e.expandedPorts.Value()...),
 	}
 }
 
-func convertPortToPortConfig(
+// ConvertPortToPortConfig converts ports to the swarm type
+func ConvertPortToPortConfig(
 	port nat.Port,
 	portBindings map[nat.Port][]nat.PortBinding,
 ) []swarm.PortConfig {
@@ -397,6 +399,20 @@ func ValidatePort(value string) (string, error) {
 	return value, err
 }
 
+// convertExtraHostsToSwarmHosts converts an array of extra hosts in cli
+//     <host>:<ip>
+// into a swarmkit host format:
+//     IP_address canonical_hostname [aliases...]
+// This assumes input value (<host>:<ip>) has already been validated
+func convertExtraHostsToSwarmHosts(extraHosts []string) []string {
+	hosts := []string{}
+	for _, extraHost := range extraHosts {
+		parts := strings.SplitN(extraHost, ":", 2)
+		hosts = append(hosts, fmt.Sprintf("%s %s", parts[1], parts[0]))
+	}
+	return hosts
+}
+
 type serviceOptions struct {
 	name            string
 	labels          opts.ListOpts
@@ -413,7 +429,8 @@ type serviceOptions struct {
 	mounts          opts.MountOpt
 	dns             opts.ListOpts
 	dnsSearch       opts.ListOpts
-	dnsOptions      opts.ListOpts
+	dnsOption       opts.ListOpts
+	hosts           opts.ListOpts
 
 	resources resourceOptions
 	stopGrace DurationOpt
@@ -443,14 +460,15 @@ func newServiceOptions() *serviceOptions {
 		env:             opts.NewListOpts(runconfigopts.ValidateEnv),
 		envFile:         opts.NewListOpts(nil),
 		endpoint: endpointOptions{
-			ports: opts.NewListOpts(ValidatePort),
+			publishPorts: opts.NewListOpts(ValidatePort),
 		},
-		groups:     opts.NewListOpts(nil),
-		logDriver:  newLogDriverOptions(),
-		dns:        opts.NewListOpts(opts.ValidateIPAddress),
-		dnsOptions: opts.NewListOpts(nil),
-		dnsSearch:  opts.NewListOpts(opts.ValidateDNSSearch),
-		networks:   opts.NewListOpts(nil),
+		groups:    opts.NewListOpts(nil),
+		logDriver: newLogDriverOptions(),
+		dns:       opts.NewListOpts(opts.ValidateIPAddress),
+		dnsOption: opts.NewListOpts(nil),
+		dnsSearch: opts.NewListOpts(opts.ValidateDNSSearch),
+		hosts:     opts.NewListOpts(runconfigopts.ValidateExtraHost),
+		networks:  opts.NewListOpts(nil),
 	}
 }
 
@@ -496,8 +514,9 @@ func (opts *serviceOptions) ToService() (swarm.ServiceSpec, error) {
 				DNSConfig: &swarm.DNSConfig{
 					Nameservers: opts.dns.GetAll(),
 					Search:      opts.dnsSearch.GetAll(),
-					Options:     opts.dnsOptions.GetAll(),
+					Options:     opts.dnsOption.GetAll(),
 				},
+				Hosts:           convertExtraHostsToSwarmHosts(opts.hosts.GetAll()),
 				StopGracePeriod: opts.stopGrace.Value(),
 				Secrets:         nil,
 			},
@@ -597,13 +616,16 @@ const (
 	flagDNS                   = "dns"
 	flagDNSRemove             = "dns-rm"
 	flagDNSAdd                = "dns-add"
-	flagDNSOptions            = "dns-options"
-	flagDNSOptionsRemove      = "dns-options-rm"
-	flagDNSOptionsAdd         = "dns-options-add"
+	flagDNSOption             = "dns-option"
+	flagDNSOptionRemove       = "dns-option-rm"
+	flagDNSOptionAdd          = "dns-option-add"
 	flagDNSSearch             = "dns-search"
 	flagDNSSearchRemove       = "dns-search-rm"
 	flagDNSSearchAdd          = "dns-search-add"
 	flagEndpointMode          = "endpoint-mode"
+	flagHost                  = "host"
+	flagHostAdd               = "host-add"
+	flagHostRemove            = "host-rm"
 	flagHostname              = "hostname"
 	flagEnv                   = "env"
 	flagEnvFile               = "env-file"
@@ -626,6 +648,9 @@ const (
 	flagPublish               = "publish"
 	flagPublishRemove         = "publish-rm"
 	flagPublishAdd            = "publish-add"
+	flagPort                  = "port"
+	flagPortAdd               = "port-add"
+	flagPortRemove            = "port-rm"
 	flagReplicas              = "replicas"
 	flagReserveCPU            = "reserve-cpu"
 	flagReserveMemory         = "reserve-memory"

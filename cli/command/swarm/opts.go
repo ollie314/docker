@@ -26,6 +26,8 @@ const (
 	flagExternalCA          = "external-ca"
 	flagMaxSnapshots        = "max-snapshots"
 	flagSnapshotInterval    = "snapshot-interval"
+	flagLockKey             = "lock-key"
+	flagAutolock            = "autolock"
 )
 
 type swarmOptions struct {
@@ -35,6 +37,7 @@ type swarmOptions struct {
 	externalCA          ExternalCAOption
 	maxSnapshots        uint64
 	snapshotInterval    uint64
+	autolock            bool
 }
 
 // NodeAddrOption is a pflag.Value for listening addresses
@@ -193,6 +196,9 @@ func (opts *swarmOptions) mergeSwarmSpec(spec *swarm.Spec, flags *pflag.FlagSet)
 	}
 	if flags.Changed(flagSnapshotInterval) {
 		spec.Raft.SnapshotInterval = opts.snapshotInterval
+	}
+	if flags.Changed(flagAutolock) {
+		spec.EncryptionConfig.AutoLockManagers = opts.autolock
 	}
 }
 

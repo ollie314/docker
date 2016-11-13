@@ -2,7 +2,6 @@
 title: "plugin install"
 description: "the plugin install command description and usage"
 keywords: "plugin, install"
-advisory: "experimental"
 ---
 
 <!-- This file is maintained within the docker/docker Github
@@ -14,7 +13,7 @@ advisory: "experimental"
      will be rejected.
 -->
 
-# plugin install (experimental)
+# plugin install
 
 ```markdown
 Usage:  docker plugin install [OPTIONS] PLUGIN [KEY=VALUE...]
@@ -60,6 +59,7 @@ tiborvass/no-remove   latest              A test plugin for Docker   true
 
 ## Related information
 
+* [plugin create](plugin_create.md)
 * [plugin ls](plugin_ls.md)
 * [plugin enable](plugin_enable.md)
 * [plugin disable](plugin_disable.md)

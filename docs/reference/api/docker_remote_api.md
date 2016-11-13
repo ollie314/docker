@@ -149,7 +149,7 @@ This section lists each version from latest to oldest.  Each listing includes a 
 * `POST /containers/create` now takes `AutoRemove` in HostConfig, to enable auto-removal of the container on daemon side when the container's process exits.
 * `GET /containers/json` and `GET /containers/(id or name)/json` now return `"removing"` as a value for the `State.Status` field if the container is being removed. Previously, "exited" was returned as status.
 * `GET /containers/json` now accepts `removing` as a valid value for the `status` filter.
-* `GET /containers/json` now supports filtering containers by `health` status. 
+* `GET /containers/json` now supports filtering containers by `health` status.
 * `DELETE /volumes/(name)` now accepts a `force` query parameter to force removal of volumes that were already removed out of band by the volume driver plugin.
 * `POST /containers/create/` and `POST /containers/(name)/update` now validates restart policies.
 * `POST /containers/create` now validates IPAMConfig in NetworkingConfig, and returns error for invalid IPv4 and IPv6 addresses (`--ip` and `--ip6` in `docker create/run`).
@@ -183,6 +183,17 @@ This section lists each version from latest to oldest.  Each listing includes a 
 * The `HostConfig` field now includes `CpuCount` that represents the number of CPUs available for execution by the container. Windows daemon only.
 * `POST /services/create` and `POST /services/(id or name)/update` now accept the `TTY` parameter, which allocate a pseudo-TTY in container.
 * `POST /services/create` and `POST /services/(id or name)/update` now accept the `DNSConfig` parameter, which specifies DNS related configurations in resolver configuration file (resolv.conf) through `Nameservers`, `Search`, and `Options`.
+* `GET /networks/(id or name)` now includes IP and name of all peers nodes for swarm mode overlay networks.
+* `GET /plugins` list plugins.
+* `POST /plugins/pull?name=<plugin name>` pulls a plugin.
+* `GET /plugins/(plugin name)` inspect a plugin.
+* `POST /plugins/(plugin name)/set` configure a plugin.
+* `POST /plugins/(plugin name)/enable` enable a plugin.
+* `POST /plugins/(plugin name)/disable` disable a plugin.
+* `POST /plugins/(plugin name)/push` push a plugin.
+* `POST /plugins/create?name=(plugin name)` create a plugin.
+* `DELETE /plugins/(plugin name)` delete a plugin.
+
 
 ### v1.24 API changes
 

@@ -21,6 +21,7 @@ type CommonAPIClient interface {
 	ImageAPIClient
 	NodeAPIClient
 	NetworkAPIClient
+	PluginAPIClient
 	ServiceAPIClient
 	SwarmAPIClient
 	SecretAPIClient
@@ -104,6 +105,19 @@ type NodeAPIClient interface {
 	NodeUpdate(ctx context.Context, nodeID string, version swarm.Version, node swarm.NodeSpec) error
 }
 
+// PluginAPIClient defines API client methods for the plugins
+type PluginAPIClient interface {
+	PluginList(ctx context.Context) (types.PluginsListResponse, error)
+	PluginRemove(ctx context.Context, name string, options types.PluginRemoveOptions) error
+	PluginEnable(ctx context.Context, name string) error
+	PluginDisable(ctx context.Context, name string) error
+	PluginInstall(ctx context.Context, name string, options types.PluginInstallOptions) error
+	PluginPush(ctx context.Context, name string, registryAuth string) error
+	PluginSet(ctx context.Context, name string, args []string) error
+	PluginInspectWithRaw(ctx context.Context, name string) (*types.Plugin, []byte, error)
+	PluginCreate(ctx context.Context, createContext io.Reader, options types.PluginCreateOptions) error
+}
+
 // ServiceAPIClient defines API client methods for the services
 type ServiceAPIClient interface {
 	ServiceCreate(ctx context.Context, service swarm.ServiceSpec, options types.ServiceCreateOptions) (types.ServiceCreateResponse, error)
@@ -111,6 +125,7 @@ type ServiceAPIClient interface {
 	ServiceList(ctx context.Context, options types.ServiceListOptions) ([]swarm.Service, error)
 	ServiceRemove(ctx context.Context, serviceID string) error
 	ServiceUpdate(ctx context.Context, serviceID string, version swarm.Version, service swarm.ServiceSpec, options types.ServiceUpdateOptions) error
+	ServiceLogs(ctx context.Context, serviceID string, options types.ContainerLogsOptions) (io.ReadCloser, error)
 	TaskInspectWithRaw(ctx context.Context, taskID string) (swarm.Task, []byte, error)
 	TaskList(ctx context.Context, options types.TaskListOptions) ([]swarm.Task, error)
 }
@@ -119,6 +134,8 @@ type ServiceAPIClient interface {
 type SwarmAPIClient interface {
 	SwarmInit(ctx context.Context, req swarm.InitRequest) (string, error)
 	SwarmJoin(ctx context.Context, req swarm.JoinRequest) error
+	SwarmGetUnlockKey(ctx context.Context) (types.SwarmUnlockKeyResponse, error)
+	SwarmUnlock(ctx context.Context, req swarm.UnlockRequest) error
 	SwarmLeave(ctx context.Context, force bool) error
 	SwarmInspect(ctx context.Context) (swarm.Swarm, error)
 	SwarmUpdate(ctx context.Context, version swarm.Version, swarm swarm.Spec, flags swarm.UpdateFlags) error

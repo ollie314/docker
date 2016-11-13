@@ -1,12 +1,12 @@
 package secret
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/docker/docker/cli"
 	"github.com/docker/docker/cli/command"
 	"github.com/spf13/cobra"
+	"golang.org/x/net/context"
 )
 
 type removeOptions struct {
@@ -32,7 +32,7 @@ func runSecretRemove(dockerCli *command.DockerCli, opts removeOptions) error {
 	ctx := context.Background()
 
 	// attempt to lookup secret by name
-	secrets, err := getSecretsByName(client, ctx, opts.ids)
+	secrets, err := getSecretsByName(ctx, client, opts.ids)
 	if err != nil {
 		return err
 	}

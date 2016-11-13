@@ -54,7 +54,7 @@ Options:
       --device-write-iops value     Limit write rate (IO per second) to a device (default [])
       --disable-content-trust       Skip image verification (default true)
       --dns value                   Set custom DNS servers (default [])
-      --dns-opt value               Set DNS options (default [])
+      --dns-option value            Set DNS options (default [])
       --dns-search value            Set custom DNS search domains (default [])
       --entrypoint string           Overwrite the default ENTRYPOINT of the image
   -e, --env value                   Set environment variables (default [])
@@ -264,9 +264,9 @@ Docker daemon.
 
 For in-depth information about volumes, refer to [manage data in containers](https://docs.docker.com/engine/tutorials/dockervolumes/)
 
-### Add bin-mounts or volumes using the --mounts flag
+### Add bin-mounts or volumes using the --mount flag
 
-The `--mounts` flag allows you to mount volumes, host-directories and `tmpfs`
+The `--mount` flag allows you to mount volumes, host-directories and `tmpfs`
 mounts in a container.
 
 The `--mount` flag supports most options that are supported by the `-v` or the

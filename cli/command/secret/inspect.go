@@ -1,12 +1,11 @@
 package secret
 
 import (
-	"context"
-
 	"github.com/docker/docker/cli"
 	"github.com/docker/docker/cli/command"
 	"github.com/docker/docker/cli/command/inspect"
 	"github.com/spf13/cobra"
+	"golang.org/x/net/context"
 )
 
 type inspectOptions struct {
@@ -35,7 +34,7 @@ func runSecretInspect(dockerCli *command.DockerCli, opts inspectOptions) error {
 	ctx := context.Background()
 
 	// attempt to lookup secret by name
-	secrets, err := getSecretsByName(client, ctx, []string{opts.name})
+	secrets, err := getSecretsByName(ctx, client, []string{opts.name})
 	if err != nil {
 		return err
 	}

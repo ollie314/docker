@@ -1686,7 +1686,7 @@ Delete stopped containers
 
 **Example request, with digest information**:
 
-    GET /v1.25/v1.25/images/json?digests=1 HTTP/1.1
+    GET /v1.25/images/json?digests=1 HTTP/1.1
 
 **Example response, with digest information**:
 
@@ -1733,7 +1733,7 @@ references on the command line.
   -   `label=key` or `label="key=value"` of an image label
   -   `before`=(`<image-name>[:<tag>]`,  `<image id>` or `<image@digest>`)
   -   `since`=(`<image-name>[:<tag>]`,  `<image id>` or `<image@digest>`)
--   **filter** - only return images with the specified name
+  -   `reference`=(`<image-name>[:<tag>]`)
 
 ### Build image from a Dockerfile
 
@@ -1743,7 +1743,7 @@ Build an image from a Dockerfile
 
 **Example request**:
 
-    POST /v1.25/v1.25/build HTTP/1.1
+    POST /v1.25/build HTTP/1.1
 
     {% raw %}
     {{ TAR STREAM }}
@@ -4291,7 +4291,7 @@ Content-Type: application/json
 
 ### Configure a plugin
 
-POST /plugins/(plugin name)/set`
+`POST /plugins/(plugin name)/set`
 
 **Example request**:
 
@@ -4400,11 +4400,47 @@ Content-Type: text/plain; charset=utf-8
 -   **404** - plugin not installed
 -   **500** - plugin is active
 
-<!-- TODO Document "docker plugin push" endpoint once we have "plugin build"
+### Create a plugin
+
+`POST /v1.25/plugins/create?name=(plugin name)`
+
+Create a plugin
+
+**Example request**:
+
+To create a plugin named `plugin`
+
+```
+POST /v1.25/plugins/create?name=plugin:latest HTTP/1.1
+Content-Type: application/x-tar
+
+{% raw %}
+{{ TAR STREAM }}
+{% endraw %}
+```
+
+The `:latest` tag is optional, and is used as default if omitted.
+
+**Example response**:
+
+```
+HTTP/1.1 204 No Content
+Content-Length: 0
+Content-Type: text/plain; charset=utf-8
+```
+
+**Query parameters**:
+
+- **name** - A name and optional tag to apply for the plugin in the `name:tag format`. If you omit the `tag` the default `:latest` value is assumed.
+
+**Status codes**:
+
+-   **204** - no error
+-   **500** - server error
 
 ### Push a plugin
 
-`POST /v1.25/plugins/tiborvass/(plugin name)/push HTTP/1.1`
+`POST /v1.25/plugins/(plugin name)/push`
 
 Pushes a plugin to the registry.
 
@@ -4426,7 +4462,6 @@ an image](#create-an-image) section for more details.
 -   **200** - no error
 -   **404** - plugin not installed
 
--->
 
 ## 3.7 Nodes
 
@@ -4516,9 +4551,10 @@ List nodes
 - **filters** – a JSON encoded value of the filters (a `map[string][]string`) to process on the
   nodes list. Available filters:
   - `id=<node id>`
+  - `label=<engine label>`
+  - `membership=`(`accepted`|`pending`)`
   - `name=<node name>`
-  - `membership=`(`pending`|`accepted`|`rejected`)`
-  - `role=`(`worker`|`manager`)`
+  - `role=`(`manager`|`worker`)`
 
 **Status codes**:
 
@@ -4677,9 +4713,9 @@ an empty value or the default cluster-wide value.
 
 JSON Parameters:
 
-- **Annotations** – Optional medata to associate with the service.
-    - **Name** – User-defined name for the service.
-    - **Labels** – A map of labels to associate with the service (e.g.,
+- **Annotations** – Optional medata to associate with the node.
+    - **Name** – User-defined name for the node.
+    - **Labels** – A map of labels to associate with the node (e.g.,
       `{"key":"value", "key2":"value2"}`).
 - **Role** - Role of the node (worker/manager).
 - **Availability** - Availability of the node (active/pause/drain).
@@ -4724,18 +4760,21 @@ Inspect swarm
           "ElectionTick" : 3
         },
         "TaskDefaults" : {},
+        "EncryptionConfig" : {
+          "AutoLockManagers": false
+        },
         "Name" : "default"
       },
-     "JoinTokens" : {
+      "JoinTokens" : {
         "Worker" : "SWMTKN-1-1h8aps2yszaiqmz2l3oc5392pgk8e49qhx2aj3nyv0ui0hez2a-6qmn92w6bu3jdvnglku58u11a",
         "Manager" : "SWMTKN-1-1h8aps2yszaiqmz2l3oc5392pgk8e49qhx2aj3nyv0ui0hez2a-8llk83c4wm9lwioey2s316r9l"
-     },
-     "ID" : "70ilmkj2f6sp2137c753w2nmt",
-     "UpdatedAt" : "2016-08-15T16:32:09.623207604Z",
-     "Version" : {
-       "Index" : 51
+      },
+      "ID" : "70ilmkj2f6sp2137c753w2nmt",
+      "UpdatedAt" : "2016-08-15T16:32:09.623207604Z",
+      "Version" : {
+        "Index" : 51
+      }
     }
-  }
 
 **Status codes**:
 
@@ -4761,7 +4800,10 @@ Initialize a new swarm. The body of the HTTP response includes the node ID.
         "Orchestration": {},
         "Raft": {},
         "Dispatcher": {},
-        "CAConfig": {}
+        "CAConfig": {},
+        "EncryptionConfig" : {
+          "AutoLockManagers": false
+        }
       }
     }
 
@@ -4816,6 +4858,9 @@ JSON Parameters:
             - **URL** - URL where certificate signing requests should be sent.
             - **Options** - An object with key/value pairs that are interpreted
               as protocol-specific options for the external CA driver.
+    - **EncryptionConfig** – Parameters related to encryption-at-rest.
+        - **AutoLockManagers**: If set, generate a key and use it to lock data stored on the
+          managers.
 
 ### Join an existing swarm
 
@@ -4885,6 +4930,44 @@ Leave a swarm
 - **200** – no error
 - **406** – node is not part of a swarm
 
+### Retrieve the swarm's unlock key
+
+`GET /swarm/unlockkey`
+
+Get unlock key
+
+**Example response**:
+
+    HTTP/1.1 200 OK
+    Content-Type: application/json
+
+    {
+      "UnlockKey": "SWMKEY-1-7c37Cc8654o6p38HnroywCi19pllOnGtbdZEgtKxZu8"
+    }
+
+**Status codes**:
+
+- **200** - no error
+
+### Unlock a locked manager
+
+`POST /swarm/unlock`
+
+Unlock a manager
+
+**Example request**:
+
+    POST /v1.25/swarm/unlock HTTP/1.1
+    Content-Type: application/json
+
+    {
+      "UnlockKey": "SWMKEY-1-7c37Cc8654o6p38HnroywCi19pllOnGtbdZEgtKxZu8"
+    }
+
+**Status codes**:
+
+- **200** - no error
+
 ### Update a swarm
 
 
@@ -4916,6 +4999,9 @@ Update a swarm
       "JoinTokens": {
         "Worker": "SWMTKN-1-3pu6hszjas19xyp7ghgosyx9k8atbfcr8p2is99znpy26u2lkl-1awxwuwd3z9j1z3puu7rcgdbx",
         "Manager": "SWMTKN-1-3pu6hszjas19xyp7ghgosyx9k8atbfcr8p2is99znpy26u2lkl-7p73s1dx5in4tatdymyhg9hu2"
+      },
+      "EncryptionConfig": {
+        "AutoLockManagers": false
       }
     }
 
@@ -4932,6 +5018,7 @@ Update a swarm
   required to avoid conflicting writes.
 - **rotateWorkerToken** - Set to `true` (or `1`) to rotate the worker join token.
 - **rotateManagerToken** - Set to `true` (or `1`) to rotate the manager join token.
+- **rotateManagerUnlockKey** - Set to `true` (or `1`) to rotate the manager unlock key.
 
 **Status codes**:
 
@@ -4965,6 +5052,9 @@ JSON Parameters:
 - **JoinTokens** - Tokens that can be used by other nodes to join the swarm.
     - **Worker** - Token to use for joining as a worker.
     - **Manager** - Token to use for joining as a manager.
+- **EncryptionConfig** – Parameters related to encryption-at-rest.
+    - **AutoLockManagers**: If set, generate a key and use it to lock data stored on the
+      managers.
 
 ## 3.9 Services
 
@@ -5069,8 +5159,9 @@ List services
 
 - **filters** – a JSON encoded value of the filters (a `map[string][]string`) to process on the
   services list. Available filters:
-  - `id=<node id>`
-  - `name=<node name>`
+  - `id=<service id>`
+  - `label=<service label>`
+  - `name=<service name>`
 
 **Status codes**:
 
@@ -5537,6 +5628,49 @@ image](#create-an-image) section for more details.
 -   **404** – no such service
 -   **500** – server error
 
+### Get service logs
+
+`GET /services/(id or name)/logs`
+
+Get `stdout` and `stderr` logs from the service ``id``
+
+> **Note**:
+> This endpoint works only for services with the `json-file` or `journald` logging drivers.
+
+**Example request**:
+
+     GET /services/4fa6e0f0c678/logs?stderr=1&stdout=1&timestamps=1&follow=1&tail=10&since=1428990821 HTTP/1.1
+
+**Example response**:
+
+     HTTP/1.1 101 UPGRADED
+     Content-Type: application/vnd.docker.raw-stream
+     Connection: Upgrade
+     Upgrade: tcp
+
+     {% raw %}
+     {{ STREAM }}
+     {% endraw %}
+
+**Query parameters**:
+
+-   **details** - 1/True/true or 0/False/flase, Show extra details provided to logs. Default `false`.
+-   **follow** – 1/True/true or 0/False/false, return stream. Default `false`.
+-   **stdout** – 1/True/true or 0/False/false, show `stdout` log. Default `false`.
+-   **stderr** – 1/True/true or 0/False/false, show `stderr` log. Default `false`.
+-   **since** – UNIX timestamp (integer) to filter logs. Specifying a timestamp
+    will only output log-entries since that timestamp. Default: 0 (unfiltered)
+-   **timestamps** – 1/True/true or 0/False/false, print timestamps for
+        every log line. Default `false`.
+-   **tail** – Output specified number of lines at the end of logs: `all` or `<number>`. Default all.
+
+**Status codes**:
+
+-   **101** – no error, hints proxy about hijacking
+-   **200** – no error, no upgrade header found
+-   **404** – no such service
+-   **500** – server error
+
 ## 3.10 Tasks
 
 **Note**: Task operations require the engine to be part of a swarm.
@@ -5926,9 +6060,9 @@ Create a secret
 
 ### Inspect a secret
 
-`GET /secrets/(secret id)`
+`GET /secrets/(id)`
 
-Get details on a secret
+Get details on the secret `id`
 
 **Example request**:
 
@@ -5954,6 +6088,7 @@ Get details on a secret
 
 - **200** – no error
 - **404** – unknown secret
+- **406** – node is not part of a swarm
 - **500** – server error
 
 ### Remove a secret

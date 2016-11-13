@@ -2,7 +2,9 @@ package swarm
 
 import (
 	basictypes "github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/backend"
 	types "github.com/docker/docker/api/types/swarm"
+	"golang.org/x/net/context"
 )
 
 // Backend abstracts an swarm commands manager.
@@ -12,11 +14,14 @@ type Backend interface {
 	Leave(force bool) error
 	Inspect() (types.Swarm, error)
 	Update(uint64, types.Spec, types.UpdateFlags) error
+	GetUnlockKey() (string, error)
+	UnlockSwarm(req types.UnlockRequest) error
 	GetServices(basictypes.ServiceListOptions) ([]types.Service, error)
 	GetService(string) (types.Service, error)
 	CreateService(types.ServiceSpec, string) (string, error)
 	UpdateService(string, uint64, types.ServiceSpec, string, string) error
 	RemoveService(string) error
+	ServiceLogs(context.Context, string, *backend.ContainerLogsConfig, chan struct{}) error
 	GetNodes(basictypes.NodeListOptions) ([]types.Node, error)
 	GetNode(string) (types.Node, error)
 	UpdateNode(string, uint64, types.NodeSpec) error

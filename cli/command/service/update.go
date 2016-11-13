@@ -48,10 +48,13 @@ func newUpdateCommand(dockerCli *command.DockerCli) *cobra.Command {
 	flags.Var(newListOptsVar(), flagContainerLabelRemove, "Remove a container label by its key")
 	flags.Var(newListOptsVar(), flagMountRemove, "Remove a mount by its target path")
 	flags.Var(newListOptsVar(), flagPublishRemove, "Remove a published port by its target port")
+	flags.MarkHidden(flagPublishRemove)
+	flags.Var(newListOptsVar(), flagPortRemove, "Remove a port(target-port mandatory)")
 	flags.Var(newListOptsVar(), flagConstraintRemove, "Remove a constraint")
-	flags.Var(newListOptsVar(), flagDNSRemove, "Remove custom DNS servers")
-	flags.Var(newListOptsVar(), flagDNSOptionsRemove, "Remove DNS options")
-	flags.Var(newListOptsVar(), flagDNSSearchRemove, "Remove DNS search domains")
+	flags.Var(newListOptsVar(), flagDNSRemove, "Remove a custom DNS server")
+	flags.Var(newListOptsVar(), flagDNSOptionRemove, "Remove a DNS option")
+	flags.Var(newListOptsVar(), flagDNSSearchRemove, "Remove a DNS search domain")
+	flags.Var(newListOptsVar(), flagHostRemove, "Remove a custom host-to-IP mapping (host:ip)")
 	flags.Var(&opts.labels, flagLabelAdd, "Add or update a service label")
 	flags.Var(&opts.containerLabels, flagContainerLabelAdd, "Add or update a container label")
 	flags.Var(&opts.env, flagEnvAdd, "Add or update an environment variable")
@@ -59,11 +62,14 @@ func newUpdateCommand(dockerCli *command.DockerCli) *cobra.Command {
 	flags.Var(&opts.secrets, flagSecretAdd, "Add or update a secret on a service")
 	flags.Var(&opts.mounts, flagMountAdd, "Add or update a mount on a service")
 	flags.Var(&opts.constraints, flagConstraintAdd, "Add or update a placement constraint")
-	flags.Var(&opts.endpoint.ports, flagPublishAdd, "Add or update a published port")
+	flags.Var(&opts.endpoint.publishPorts, flagPublishAdd, "Add or update a published port")
+	flags.MarkHidden(flagPublishAdd)
+	flags.Var(&opts.endpoint.expandedPorts, flagPortAdd, "Add or update a port")
 	flags.Var(&opts.groups, flagGroupAdd, "Add an additional supplementary user group to the container")
-	flags.Var(&opts.dns, flagDNSAdd, "Add or update custom DNS servers")
-	flags.Var(&opts.dnsOptions, flagDNSOptionsAdd, "Add or update DNS options")
-	flags.Var(&opts.dnsSearch, flagDNSSearchAdd, "Add or update custom DNS search domains")
+	flags.Var(&opts.dns, flagDNSAdd, "Add or update a custom DNS server")
+	flags.Var(&opts.dnsOption, flagDNSOptionAdd, "Add or update a DNS option")
+	flags.Var(&opts.dnsSearch, flagDNSSearchAdd, "Add or update a custom DNS search domain")
+	flags.Var(&opts.hosts, flagHostAdd, "Add or update a custom host-to-IP mapping (host:ip)")
 
 	return cmd
 }
@@ -265,7 +271,7 @@ func updateService(flags *pflag.FlagSet, spec *swarm.ServiceSpec) error {
 		}
 	}
 
-	if anyChanged(flags, flagPublishAdd, flagPublishRemove) {
+	if anyChanged(flags, flagPublishAdd, flagPublishRemove, flagPortAdd, flagPortRemove) {
 		if spec.EndpointSpec == nil {
 			spec.EndpointSpec = &swarm.EndpointSpec{}
 		}
@@ -274,11 +280,17 @@ func updateService(flags *pflag.FlagSet, spec *swarm.ServiceSpec) error {
 		}
 	}
 
-	if anyChanged(flags, flagDNSAdd, flagDNSRemove, flagDNSOptionsAdd, flagDNSOptionsRemove, flagDNSSearchAdd, flagDNSSearchRemove) {
+	if anyChanged(flags, flagDNSAdd, flagDNSRemove, flagDNSOptionAdd, flagDNSOptionRemove, flagDNSSearchAdd, flagDNSSearchRemove) {
 		if cspec.DNSConfig == nil {
 			cspec.DNSConfig = &swarm.DNSConfig{}
 		}
 		if err := updateDNSConfig(flags, &cspec.DNSConfig); err != nil {
+			return err
+		}
+	}
+
+	if anyChanged(flags, flagHostAdd, flagHostRemove) {
+		if err := updateHosts(flags, &cspec.Hosts); err != nil {
 			return err
 		}
 	}
@@ -586,12 +598,12 @@ func updateDNSConfig(flags *pflag.FlagSet, config **swarm.DNSConfig) error {
 	sort.Strings(newConfig.Search)
 
 	options := (*config).Options
-	if flags.Changed(flagDNSOptionsAdd) {
-		values := flags.Lookup(flagDNSOptionsAdd).Value.(*opts.ListOpts).GetAll()
+	if flags.Changed(flagDNSOptionAdd) {
+		values := flags.Lookup(flagDNSOptionAdd).Value.(*opts.ListOpts).GetAll()
 		options = append(options, values...)
 	}
 	options = removeDuplicates(options)
-	toRemove = buildToRemoveSet(flags, flagDNSOptionsRemove)
+	toRemove = buildToRemoveSet(flags, flagDNSOptionRemove)
 	for _, option := range options {
 		if _, exists := toRemove[option]; !exists {
 			newConfig.Options = append(newConfig.Options, option)
@@ -619,7 +631,13 @@ func portConfigToString(portConfig *swarm.PortConfig) string {
 	if protocol == "" {
 		protocol = "tcp"
 	}
-	return fmt.Sprintf("%v/%s", portConfig.PublishedPort, protocol)
+
+	mode := portConfig.PublishMode
+	if mode == "" {
+		mode = "ingress"
+	}
+
+	return fmt.Sprintf("%v:%v/%s/%s", portConfig.PublishedPort, portConfig.TargetPort, protocol, mode)
 }
 
 func updatePorts(flags *pflag.FlagSet, portConfig *[]swarm.PortConfig) error {
@@ -631,13 +649,22 @@ func updatePorts(flags *pflag.FlagSet, portConfig *[]swarm.PortConfig) error {
 		ports, portBindings, _ := nat.ParsePortSpecs(values)
 
 		for port := range ports {
-			newConfigs := convertPortToPortConfig(port, portBindings)
+			newConfigs := ConvertPortToPortConfig(port, portBindings)
 			for _, entry := range newConfigs {
 				if v, ok := portSet[portConfigToString(&entry)]; ok && v != entry {
 					return fmt.Errorf("conflicting port mapping between %v:%v/%s and %v:%v/%s", entry.PublishedPort, entry.TargetPort, entry.Protocol, v.PublishedPort, v.TargetPort, v.Protocol)
 				}
 				portSet[portConfigToString(&entry)] = entry
 			}
+		}
+	}
+
+	if flags.Changed(flagPortAdd) {
+		for _, entry := range flags.Lookup(flagPortAdd).Value.(*opts.PortOpt).Value() {
+			if v, ok := portSet[portConfigToString(&entry)]; ok && v != entry {
+				return fmt.Errorf("conflicting port mapping between %v:%v/%s and %v:%v/%s", entry.PublishedPort, entry.TargetPort, entry.Protocol, v.PublishedPort, v.TargetPort, v.Protocol)
+			}
+			portSet[portConfigToString(&entry)] = entry
 		}
 	}
 
@@ -649,6 +676,14 @@ func updatePorts(flags *pflag.FlagSet, portConfig *[]swarm.PortConfig) error {
 	}
 
 	toRemove := flags.Lookup(flagPublishRemove).Value.(*opts.ListOpts).GetAll()
+	removePortCSV := flags.Lookup(flagPortRemove).Value.(*opts.ListOpts).GetAll()
+	removePortOpts := &opts.PortOpt{}
+	for _, portCSV := range removePortCSV {
+		if err := removePortOpts.Set(portCSV); err != nil {
+			return err
+		}
+	}
+
 	newPorts := []swarm.PortConfig{}
 portLoop:
 	for _, port := range portSet {
@@ -658,12 +693,34 @@ portLoop:
 				continue portLoop
 			}
 		}
+
+		for _, pConfig := range removePortOpts.Value() {
+			if equalProtocol(port.Protocol, pConfig.Protocol) &&
+				port.TargetPort == pConfig.TargetPort &&
+				equalPublishMode(port.PublishMode, pConfig.PublishMode) {
+				continue portLoop
+			}
+		}
+
 		newPorts = append(newPorts, port)
 	}
+
 	// Sort the PortConfig to avoid unnecessary updates
 	sort.Sort(byPortConfig(newPorts))
 	*portConfig = newPorts
 	return nil
+}
+
+func equalProtocol(prot1, prot2 swarm.PortConfigProtocol) bool {
+	return prot1 == prot2 ||
+		(prot1 == swarm.PortConfigProtocol("") && prot2 == swarm.PortConfigProtocolTCP) ||
+		(prot2 == swarm.PortConfigProtocol("") && prot1 == swarm.PortConfigProtocolTCP)
+}
+
+func equalPublishMode(mode1, mode2 swarm.PortConfigPublishMode) bool {
+	return mode1 == mode2 ||
+		(mode1 == swarm.PortConfigPublishMode("") && mode2 == swarm.PortConfigPublishModeIngress) ||
+		(mode2 == swarm.PortConfigPublishMode("") && mode1 == swarm.PortConfigPublishModeIngress)
 }
 
 func equalPort(targetPort nat.Port, port swarm.PortConfig) bool {
@@ -680,6 +737,47 @@ func updateReplicas(flags *pflag.FlagSet, serviceMode *swarm.ServiceMode) error 
 		return fmt.Errorf("replicas can only be used with replicated mode")
 	}
 	serviceMode.Replicated.Replicas = flags.Lookup(flagReplicas).Value.(*Uint64Opt).Value()
+	return nil
+}
+
+func updateHosts(flags *pflag.FlagSet, hosts *[]string) error {
+	// Combine existing Hosts (in swarmkit format) with the host to add (convert to swarmkit format)
+	if flags.Changed(flagHostAdd) {
+		values := convertExtraHostsToSwarmHosts(flags.Lookup(flagHostAdd).Value.(*opts.ListOpts).GetAll())
+		*hosts = append(*hosts, values...)
+	}
+	// Remove duplicate
+	*hosts = removeDuplicates(*hosts)
+
+	keysToRemove := make(map[string]struct{})
+	if flags.Changed(flagHostRemove) {
+		var empty struct{}
+		extraHostsToRemove := flags.Lookup(flagHostRemove).Value.(*opts.ListOpts).GetAll()
+		for _, entry := range extraHostsToRemove {
+			key := strings.SplitN(entry, ":", 2)[0]
+			keysToRemove[key] = empty
+		}
+	}
+
+	newHosts := []string{}
+	for _, entry := range *hosts {
+		// Since this is in swarmkit format, we need to find the key, which is canonical_hostname of:
+		// IP_address canonical_hostname [aliases...]
+		parts := strings.Fields(entry)
+		if len(parts) > 1 {
+			key := parts[1]
+			if _, exists := keysToRemove[key]; !exists {
+				newHosts = append(newHosts, entry)
+			}
+		} else {
+			newHosts = append(newHosts, entry)
+		}
+	}
+
+	// Sort so that result is predictable.
+	sort.Strings(newHosts)
+
+	*hosts = newHosts
 	return nil
 }
 

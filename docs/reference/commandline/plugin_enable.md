@@ -2,7 +2,6 @@
 title: "plugin enable"
 description: "the plugin enable command description and usage"
 keywords: "plugin, enable"
-advisory: "experimental"
 ---
 
 <!-- This file is maintained within the docker/docker Github
@@ -14,7 +13,7 @@ advisory: "experimental"
      will be rejected.
 -->
 
-# plugin enable (experimental)
+# plugin enable
 
 ```markdown
 Usage:  docker plugin enable PLUGIN
@@ -54,6 +53,7 @@ tiborvass/no-remove   latest              A test plugin for Docker   true
 
 ## Related information
 
+* [plugin create](plugin_create.md)
 * [plugin ls](plugin_ls.md)
 * [plugin disable](plugin_disable.md)
 * [plugin inspect](plugin_inspect.md)
